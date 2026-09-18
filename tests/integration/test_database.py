@@ -123,3 +123,91 @@ def test_negative_account_balance_rejected() -> None:
 
     finally:
         db.close()
+
+def test_duplicate_idempotency_key_rejected() -> None:
+    db = SessionLocal()
+
+    try:
+        user = User(
+            name="Idempotency User",
+            email=f"user-{uuid4()}@example.com",
+        )
+
+        merchant = Merchant(
+            name="Idempotency Merchant",
+            email=f"merchant-{uuid4()}@example.com",
+        )
+
+        db.add_all([user, merchant])
+        db.flush()
+
+        first_transaction = Transaction(
+            user_id=user.id,
+            merchant_id=merchant.id,
+            amount=Decimal("100.00"),
+            currency="INR",
+            status="PENDING",
+            idempotency_key="fixed-test-idempotency-key",
+            payment_token=f"token-{uuid4()}",
+        )
+
+        db.add(first_transaction)
+        db.flush()
+
+        second_transaction = Transaction(
+            user_id=user.id,
+            merchant_id=merchant.id,
+            amount=Decimal("200.00"),
+            currency="INR",
+            status="PENDING",
+            idempotency_key="fixed-test-idempotency-key",
+            payment_token=f"token-{uuid4()}",
+        )
+
+        db.add(second_transaction)
+
+        with pytest.raises(IntegrityError):
+            db.flush()
+
+        db.rollback()
+
+    finally:
+        db.close()
+
+
+def test_user_cannot_have_multiple_accounts() -> None:
+    db = SessionLocal()
+
+    try:
+        user = User(
+            name="Account Test User",
+            email=f"user-{uuid4()}@example.com",
+        )
+
+        db.add(user)
+        db.flush()
+
+        first_account = Account(
+            user_id=user.id,
+            balance=Decimal("1000.00"),
+            currency="INR",
+        )
+
+        db.add(first_account)
+        db.flush()
+
+        second_account = Account(
+            user_id=user.id,
+            balance=Decimal("2000.00"),
+            currency="INR",
+        )
+
+        db.add(second_account)
+
+        with pytest.raises(IntegrityError):
+            db.flush()
+
+        db.rollback()
+
+    finally:
+        db.close()
