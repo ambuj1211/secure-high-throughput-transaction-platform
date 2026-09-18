@@ -189,6 +189,21 @@ class Transaction(Base):
         nullable=False,
     )
 
+    risk_score: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2),
+        nullable=True,
+    )
+
+    risk_decision: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
+    risk_processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,
@@ -210,5 +225,70 @@ class Transaction(Base):
         CheckConstraint(
             "amount > 0",
             name="ck_transactions_amount_positive",
+        ),
+        CheckConstraint(
+            "risk_score >= 0 AND risk_score <= 100",
+            name="ck_transactions_risk_score_range",
+        ),
+    )
+
+
+class RiskJob(Base):
+    __tablename__ = "risk_jobs"
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        default=uuid4,
+    )
+
+    transaction_id: Mapped[UUID] = mapped_column(
+        ForeignKey("transactions.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+        index=True,
+    )
+
+    attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+    last_error: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "attempts >= 0",
+            name="ck_risk_jobs_attempts_non_negative",
         ),
     )
