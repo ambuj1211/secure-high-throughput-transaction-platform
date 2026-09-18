@@ -66,4 +66,5 @@ pip-audit
 # ==============================
 # Monitoring
 # ==============================
-prometheus-client
+prometheus-clientpwdlib[argon2]
+PyJWT

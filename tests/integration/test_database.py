@@ -124,6 +124,7 @@ def test_negative_account_balance_rejected() -> None:
     finally:
         db.close()
 
+
 def test_duplicate_idempotency_key_rejected() -> None:
     db = SessionLocal()
 

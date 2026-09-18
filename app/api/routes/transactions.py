@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Header, HTTPException, status
 
-from app.api.deps import get_db
+from app.api.deps import CurrentUser, DBSession
 from app.schemas.transaction import TransactionCreate, TransactionResponse
 from app.services.exceptions import (
     AccountNotFoundError,
@@ -19,7 +18,6 @@ router = APIRouter(
     tags=["Transactions"],
 )
 
-DatabaseSession = Annotated[Session, Depends(get_db)]
 IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key")]
 
 
@@ -31,7 +29,8 @@ IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key")]
 def create_transaction_endpoint(
     request: TransactionCreate,
     idempotency_key: IdempotencyHeader,
-    db: DatabaseSession,
+    user: CurrentUser,
+    db: DBSession,
 ) -> TransactionResponse:
     if not idempotency_key.strip():
         raise HTTPException(
@@ -42,6 +41,7 @@ def create_transaction_endpoint(
     try:
         transaction = create_transaction(
             db=db,
+            user_id=user.id,
             request=request,
             idempotency_key=idempotency_key,
         )

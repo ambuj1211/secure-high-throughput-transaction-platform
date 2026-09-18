@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,10 +21,11 @@ def utc_now() -> datetime:
 
 def _matches_existing_request(
     transaction: Transaction,
+    user_id: UUID,
     request: TransactionCreate,
 ) -> bool:
     return (
-        transaction.user_id == request.user_id
+        transaction.user_id == user_id
         and transaction.merchant_id == request.merchant_id
         and transaction.amount == request.amount
         and transaction.currency == request.currency
@@ -33,11 +35,15 @@ def _matches_existing_request(
 
 def create_transaction(
     db: Session,
+    user_id: UUID,
     request: TransactionCreate,
     idempotency_key: str,
 ) -> Transaction:
     """
     Create a transaction atomically.
+
+    The authenticated user_id is supplied by the JWT layer rather than
+    being accepted from the client request body.
 
     The account row is locked with SELECT FOR UPDATE so concurrent
     requests cannot both spend the same available balance.
@@ -49,14 +55,14 @@ def create_transaction(
         )
 
         if existing is not None:
-            if _matches_existing_request(existing, request):
+            if _matches_existing_request(existing, user_id, request):
                 return existing
 
             raise IdempotencyConflictError(
                 "Idempotency key was already used with a different request."
             )
 
-        user = db.scalar(select(User).where(User.id == request.user_id))
+        user = db.scalar(select(User).where(User.id == user_id))
 
         if user is None:
             raise UserNotFoundError("User not found.")
@@ -67,18 +73,20 @@ def create_transaction(
             raise MerchantNotFoundError("Merchant not found.")
 
         account = db.scalar(
-            select(Account).where(Account.user_id == request.user_id).with_for_update()
+            select(Account).where(Account.user_id == user_id).with_for_update()
         )
 
         if account is None:
             raise AccountNotFoundError("Account not found.")
 
+        # Re-check idempotency after acquiring the account lock.
+        # This handles concurrent requests safely for the same account.
         existing = db.scalar(
             select(Transaction).where(Transaction.idempotency_key == idempotency_key)
         )
 
         if existing is not None:
-            if _matches_existing_request(existing, request):
+            if _matches_existing_request(existing, user_id, request):
                 return existing
 
             raise IdempotencyConflictError(
@@ -96,13 +104,13 @@ def create_transaction(
         account.updated_at = utc_now()
 
         transaction = Transaction(
-            user_id=request.user_id,
+            user_id=user_id,
             merchant_id=request.merchant_id,
             amount=request.amount,
             currency=request.currency,
-            status="PENDING",
-            idempotency_key=idempotency_key,
             payment_token=request.payment_token,
+            idempotency_key=idempotency_key,
+            status="PENDING",
         )
 
         db.add(transaction)

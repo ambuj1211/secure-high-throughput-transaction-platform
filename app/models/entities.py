@@ -46,6 +46,17 @@ class User(Base):
         nullable=False,
     )
 
+    password_hash: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    role: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        server_default="user",
+    )
+
 
 class Merchant(Base):
     __tablename__ = "merchants"
