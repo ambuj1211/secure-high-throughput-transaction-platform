@@ -1,0 +1,69 @@
+# ==============================
+# Backend
+# ==============================
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ==============================
+# Database
+# ==============================
+sqlalchemy
+psycopg2-binary
+alembic
+
+# ==============================
+# Redis / HTTP
+# ==============================
+redis
+httpx
+
+# ==============================
+# Data Processing / Risk Engine
+# ==============================
+numpy
+pandas
+
+# ==============================
+# Authentication / Security
+# ==============================
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+email-validator
+
+# ==============================
+# Environment
+# ==============================
+python-dotenv
+
+# ==============================
+# Testing
+# ==============================
+pytest
+pytest-asyncio
+pytest-cov
+faker
+
+# ==============================
+# Performance / Load Testing
+# ==============================
+locust
+
+# ==============================
+# Code Quality
+# ==============================
+ruff
+mypy
+
+# ==============================
+# Security Scanning
+# ==============================
+bandit
+pip-audit
+
+# ==============================
+# Monitoring
+# ==============================
+prometheus-client
