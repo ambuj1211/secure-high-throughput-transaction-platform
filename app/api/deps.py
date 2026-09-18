@@ -1,13 +1,14 @@
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import User
+from app.services.rate_limiter import RateLimiter
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
@@ -79,3 +80,22 @@ def require_admin(user: CurrentUser) -> User:
 
 
 CurrentAdmin = Annotated[User, Depends(require_admin)]
+
+
+def enforce_login_rate_limit(request: Request):
+    client_host = request.client.host if request.client is not None else "unknown"
+
+    limiter = RateLimiter(settings.redis_url)
+
+    allowed, _ = limiter.check(
+        key=f"rate-limit:login:{client_host}",
+        limit=settings.login_rate_limit_requests,
+        window_seconds=settings.login_rate_limit_window_seconds,
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(settings.login_rate_limit_window_seconds)},
+        )

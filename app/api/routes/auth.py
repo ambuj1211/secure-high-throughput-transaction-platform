@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentAdmin, CurrentUser, DBSession
+from app.api.deps import CurrentAdmin, CurrentUser, DBSession, enforce_login_rate_limit
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
 from app.schemas.auth import (
@@ -55,6 +55,7 @@ def register(request: RegisterRequest, db: DBSession):
 @router.post(
     "/login",
     response_model=TokenResponse,
+    dependencies=[Depends(enforce_login_rate_limit)],
 )
 def login(request: LoginRequest, db: DBSession):
     email = request.email.strip().lower()
