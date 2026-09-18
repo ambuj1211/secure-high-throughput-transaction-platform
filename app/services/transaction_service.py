@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Merchant, Transaction, User
+from app.models import Account, Merchant, RiskJob, Transaction, User
 from app.schemas.transaction import TransactionCreate
 from app.services.exceptions import (
     AccountNotFoundError,
@@ -47,6 +47,9 @@ def create_transaction(
 
     The account row is locked with SELECT FOR UPDATE so concurrent
     requests cannot both spend the same available balance.
+
+    The transaction and its risk job are committed in the same
+    database transaction.
     """
 
     with db.begin():
@@ -80,7 +83,6 @@ def create_transaction(
             raise AccountNotFoundError("Account not found.")
 
         # Re-check idempotency after acquiring the account lock.
-        # This handles concurrent requests safely for the same account.
         existing = db.scalar(
             select(Transaction).where(Transaction.idempotency_key == idempotency_key)
         )
@@ -114,6 +116,16 @@ def create_transaction(
         )
 
         db.add(transaction)
+        db.flush()
+
+        risk_job = RiskJob(
+            transaction_id=transaction.id,
+            status="PENDING",
+            attempts=0,
+            available_at=utc_now(),
+        )
+
+        db.add(risk_job)
         db.flush()
 
         return transaction

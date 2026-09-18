@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Account, Transaction
+from app.models import Account, RiskJob, Transaction
 
 
 def test_create_transaction_success(
@@ -215,3 +215,83 @@ def test_reused_idempotency_key_with_different_request_rejected(
 
     assert first_response.status_code == 201
     assert second_response.status_code == 409
+
+
+def test_transaction_creates_risk_job(
+    client,
+    transaction_test_data,
+    auth_headers,
+) -> None:
+    idempotency_key = str(uuid4())
+
+    response = client.post(
+        "/api/v1/transactions",
+        headers={
+            **auth_headers,
+            "Idempotency-Key": idempotency_key,
+        },
+        json={
+            "merchant_id": transaction_test_data["merchant_id"],
+            "amount": "2000.00",
+            "currency": "INR",
+            "payment_token": "synthetic-risk-job-token",
+        },
+    )
+
+    assert response.status_code == 201
+
+    transaction_id = response.json()["id"]
+
+    with SessionLocal() as db:
+        jobs = db.query(RiskJob).filter(RiskJob.transaction_id == transaction_id).all()
+
+        assert len(jobs) == 1
+        assert jobs[0].status == "PENDING"
+        assert jobs[0].attempts == 0
+
+
+def test_repeated_idempotent_request_creates_only_one_risk_job(
+    client,
+    transaction_test_data,
+    auth_headers,
+) -> None:
+    idempotency_key = str(uuid4())
+
+    payload = {
+        "merchant_id": transaction_test_data["merchant_id"],
+        "amount": "1000.00",
+        "currency": "INR",
+        "payment_token": "synthetic-risk-job-idempotent",
+    }
+
+    headers = {
+        **auth_headers,
+        "Idempotency-Key": idempotency_key,
+    }
+
+    first = client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json=payload,
+    )
+
+    second = client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json=payload,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+
+    with SessionLocal() as db:
+        jobs = (
+            db.query(RiskJob)
+            .filter(
+                RiskJob.transaction_id == first.json()["id"],
+            )
+            .all()
+        )
+
+        assert len(jobs) == 1

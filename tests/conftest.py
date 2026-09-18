@@ -4,12 +4,12 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import Account, Merchant, Transaction, User
+from app.models import Account, Merchant, RiskJob, Transaction, User
 
 
 @pytest.fixture
@@ -63,6 +63,19 @@ def transaction_test_data(
 
     # Transactions must be deleted before their referenced
     # users/merchants.
+    transaction_ids = db.scalars(
+        select(Transaction.id).where(
+            Transaction.merchant_id == merchant.id,
+        )
+    ).all()
+
+    if transaction_ids:
+        db.execute(
+            delete(RiskJob).where(
+                RiskJob.transaction_id.in_(transaction_ids),
+            )
+        )
+
     db.execute(
         delete(Transaction).where(
             Transaction.merchant_id == merchant.id,

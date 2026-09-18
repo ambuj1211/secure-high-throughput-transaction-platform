@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
 from app.main import app
-from app.models import Account, Transaction, User
+from app.models import Account, RiskJob, Transaction, User
 
 
 def test_transaction_cannot_use_client_supplied_user_id(
@@ -89,6 +89,15 @@ def test_transaction_cannot_use_client_supplied_user_id(
         assert transaction.user_id != transaction_test_data["user_id"]
 
         # Cleanup the attacker's transaction before deleting the attacker.
+        risk_job = (
+            db.query(RiskJob)
+            .filter(RiskJob.transaction_id == transaction.id)
+            .one_or_none()
+        )
+
+        if risk_job is not None:
+            db.delete(risk_job)
+
         db.delete(transaction)
         db.delete(attacker_account)
 
