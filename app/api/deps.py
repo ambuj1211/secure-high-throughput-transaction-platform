@@ -1,3 +1,5 @@
+import logging
+import time
 from typing import Annotated
 
 import jwt
@@ -9,11 +11,16 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import User
 from app.services.rate_limiter import RateLimiter
+from uuid import UUID
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
 )
 
+logger = logging.getLogger(__name__)
+
+_PERF_SAMPLE_EVERY = 50
+_auth_counter = 0
 
 def get_db():
     db = SessionLocal()
@@ -26,6 +33,55 @@ def get_db():
 DBSession = Annotated[Session, Depends(get_db)]
 BearerToken = Annotated[str, Depends(oauth2_scheme)]
 
+
+
+def get_current_user_id(
+    token: BearerToken,
+) -> UUID:
+    global _auth_counter
+
+    _auth_counter += 1
+    perf_sample = _auth_counter % _PERF_SAMPLE_EVERY == 0
+
+    start = time.perf_counter()
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired authentication token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+
+        user_id = payload.get("sub")
+
+        if not user_id:
+            raise credentials_exception
+
+        result = UUID(str(user_id))
+
+        if perf_sample:
+            auth_ms = (time.perf_counter() - start) * 1000
+            logger.warning(
+                "AUTH_PERF total=%.2fms",
+                auth_ms,
+            )
+
+        return result
+
+    except (
+        jwt.ExpiredSignatureError,
+        jwt.InvalidTokenError,
+        ValueError,
+    ) as exc:
+        raise credentials_exception from exc
+
+CurrentUserId = Annotated[UUID, Depends(get_current_user_id)]
 
 def get_current_user(
     token: BearerToken,

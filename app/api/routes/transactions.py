@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, status
 
-from app.api.deps import CurrentUser, DBSession
+from app.api.deps import CurrentUserId, DBSession
 from app.schemas.transaction import TransactionCreate, TransactionResponse
 from app.services.exceptions import (
     AccountNotFoundError,
@@ -29,7 +29,7 @@ IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key")]
 def create_transaction_endpoint(
     request: TransactionCreate,
     idempotency_key: IdempotencyHeader,
-    user: CurrentUser,
+    user_id: CurrentUserId,
     db: DBSession,
 ) -> TransactionResponse:
     if not idempotency_key.strip():
@@ -41,18 +41,13 @@ def create_transaction_endpoint(
     try:
         transaction = create_transaction(
             db=db,
-            user_id=user.id,
+            user_id=user_id,
             request=request,
             idempotency_key=idempotency_key,
         )
 
         return transaction
 
-    except UserNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
 
     except MerchantNotFoundError as exc:
         raise HTTPException(

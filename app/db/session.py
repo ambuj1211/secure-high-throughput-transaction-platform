@@ -15,6 +15,7 @@ SessionLocal = sessionmaker(
     class_=Session,
     autoflush=False,
     autocommit=False,
+    expire_on_commit=False,
 )
 
 

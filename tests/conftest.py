@@ -1,3 +1,12 @@
+import os
+
+os.environ["DATABASE_URL"] = (
+    "postgresql+psycopg2://"
+    "transaction_user:transaction_password@localhost:5432/transactions_test"
+)
+
+os.environ["REDIS_URL"] = "redis://localhost:6379/1"
+
 from collections.abc import Generator
 from decimal import Decimal
 from uuid import uuid4

@@ -180,8 +180,6 @@ class Transaction(Base):
     idempotency_key: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        unique=True,
-        index=True,
     )
 
     payment_token: Mapped[str] = mapped_column(
