@@ -1,6 +1,7 @@
 import logging
 import time
 from typing import Annotated
+from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -11,7 +12,6 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import User
 from app.services.rate_limiter import RateLimiter
-from uuid import UUID
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",

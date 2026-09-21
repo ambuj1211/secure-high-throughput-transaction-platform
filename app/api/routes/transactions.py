@@ -9,7 +9,6 @@ from app.services.exceptions import (
     IdempotencyConflictError,
     InsufficientFundsError,
     MerchantNotFoundError,
-    UserNotFoundError,
 )
 from app.services.transaction_service import create_transaction
 
@@ -46,7 +45,7 @@ def create_transaction_endpoint(
             idempotency_key=idempotency_key,
         )
 
-        return transaction
+        return TransactionResponse.model_validate(transaction)
 
 
     except MerchantNotFoundError as exc:

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
@@ -147,7 +147,7 @@ def test_expired_token_rejected(client, transaction_test_data):
         {
             "sub": transaction_test_data["user_id"],
             "role": "user",
-            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+            "exp": datetime.now(UTC) - timedelta(minutes=1),
         },
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,

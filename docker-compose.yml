@@ -41,6 +41,35 @@ services:
       retries: 5
 
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: transaction-app
+    restart: unless-stopped
+
+    environment:
+      APP_NAME: secure-transaction-platform
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg2://transaction_user:transaction_password@postgres:5432/transactions
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: docker-local-development-secret
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      LOGIN_RATE_LIMIT_REQUESTS: 5
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: 60
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+
 volumes:
   postgres_data:
   redis_data:

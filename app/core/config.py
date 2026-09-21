@@ -22,4 +22,5 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+# Values are loaded from the environment/.env at runtime.
+settings = Settings()  # type: ignore[call-arg]

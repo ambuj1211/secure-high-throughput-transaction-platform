@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -23,7 +23,7 @@ _perf_counter = 0
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _matches_existing_request(

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -13,7 +13,7 @@ def test_generate_transaction_analytics_reads_from_database(
     user_id = UUID(transaction_test_data["user_id"])
     merchant_id = UUID(transaction_test_data["merchant_id"])
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     transactions = [
         Transaction(
@@ -82,7 +82,7 @@ def test_generate_transaction_analytics_supports_time_range(
     user_id = UUID(transaction_test_data["user_id"])
     merchant_id = UUID(transaction_test_data["merchant_id"])
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     transactions = [
         Transaction(

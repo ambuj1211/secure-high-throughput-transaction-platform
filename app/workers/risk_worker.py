@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from time import sleep
 from typing import Final
@@ -18,7 +18,7 @@ DEFAULT_RETRY_DELAY_SECONDS: Final = 5
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def process_next_risk_job(
