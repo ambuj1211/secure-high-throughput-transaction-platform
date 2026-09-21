@@ -2,9 +2,11 @@ import logging
 import time
 
 from fastapi import FastAPI, Request
+from prometheus_client import make_asgi_app
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.transactions import router as transactions_router
+from app.core.metrics import REQUEST_COUNT, REQUEST_LATENCY
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,24 @@ async def performance_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    total_ms = (time.perf_counter() - start) * 1000
+    total_seconds = time.perf_counter() - start
+    total_ms = total_seconds * 1000
 
-    if perf_sample and request.url.path == "/api/v1/transactions":
+    path = request.url.path
+
+    if path != "/metrics":
+        REQUEST_COUNT.labels(
+            method=request.method,
+            path=path,
+            status=str(response.status_code),
+        ).inc()
+
+        REQUEST_LATENCY.labels(
+            method=request.method,
+            path=path,
+        ).observe(total_seconds)
+
+    if perf_sample and path == "/api/v1/transactions":
         logger.warning(
             "REQUEST_PERF total=%.2fms status=%s",
             total_ms,
@@ -46,3 +63,6 @@ def health_check():
 
 app.include_router(auth_router)
 app.include_router(transactions_router)
+
+# Prometheus-compatible metrics endpoint.
+app.mount("/metrics", make_asgi_app())

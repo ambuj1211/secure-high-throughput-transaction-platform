@@ -1,12 +1,10 @@
 ﻿from __future__ import annotations
 
-import random
 from uuid import uuid4
 
 from locust import HttpUser, between, task
 
 from app.core.security import create_access_token
-
 
 LOAD_TEST_ACCOUNTS = [
     "9d57e070-2d26-44d1-b879-aea518f62dfa",

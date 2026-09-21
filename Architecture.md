@@ -1,115 +1,226 @@
 # Architecture
 
-## 1. Overview
+## 1. System Overview
 
-The system is a single-user, local-first transaction-processing simulation intended to demonstrate production-oriented backend engineering.
+**Secure High-Throughput Transaction Processing Platform** is a single-user, local-first backend simulation built to demonstrate practical backend engineering around transaction processing, security, concurrency, risk processing, analytics, testing, and observability.
 
-The design emphasizes:
+The implementation uses synthetic users, merchants, accounts, transactions, and payment tokens. It does not process real money, store real card numbers, or claim PCI-DSS or production-payment compliance.
 
-* scalability
-* reliability
-* security
-* concurrency
-* database correctness
-* asynchronous processing
-* observability
-* testability
+The architecture is intentionally limited to components that are implemented in the repository. There is no external API gateway, WAF, Kafka/RabbitMQ queue, or outbox service in the current implementation.
 
-It is not a real payment processor.
-
-## 2. High-Level Architecture
+## 2. Implemented High-Level Architecture
 
 ```text
-                         CLIENT
-                           |
-                           v
-                 +-------------------+
-                 | Edge / WAF Layer  |
-                 | DDoS / Filtering  |
-                 +---------+---------+
-                           |
-                           v
-                 +-------------------+
-                 | API Gateway       |
-                 | TLS / HSTS        |
-                 | Rate Limiting     |
-                 +---------+---------+
-                           |
-                           v
-                 +-------------------+
-                 | FastAPI Backend   |
-                 +---------+---------+
-                           |
-             +-------------+-------------+
-             |             |             |
-             v             v             v
-        PostgreSQL       Redis       Message Queue
-             |             |             |
-             |             |      +------+------+
-             |             |      |             |
-             v             v      v             v
-       Transaction DB   Cache   Risk Worker  Analytics Worker
-                                  |             |
-                                  v             v
-                                NumPy         Pandas
+                         Client / Locust
+                                |
+                                v
+                    +-------------------------+
+                    |      FastAPI App        |
+                    |-------------------------|
+                    | JWT Authentication       |
+                    | RBAC / Authorization     |
+                    | Request Validation       |
+                    | Transaction API          |
+                    | Performance Middleware   |
+                    +-----------+-------------+
+                                |
+              +-----------------+------------------+
+              |                                    |
+              v                                    v
+      +---------------+                    +---------------+
+      |    Redis      |                    |  PostgreSQL   |
+      |---------------|                    |---------------|
+      | Login rate    |                    | Users         |
+      | limiting      |                    | Merchants     |
+      | velocity/state|                    | Accounts      |
+      +---------------+                    | Transactions  |
+                                           | Risk Jobs     |
+                                           +-------+-------+
+                                                   |
+                                                   v
+                                         +------------------+
+                                         | Concurrent Risk  |
+                                         | Worker           |
+                                         +--------+---------+
+                                                  |
+                                                  v
+                                         +------------------+
+                                         | NumPy Risk Engine|
+                                         +------------------+
+
+                  Transaction Data
+                         |
+                         v
+                 +---------------+
+                 | Pandas         |
+                 | Analytics      |
+                 +---------------+
+
+                    FastAPI Metrics
+                         |
+                         v
+                   +-----------+
+                   | Prometheus|
+                   +-----+-----+
+                         |
+                         v
+                    +---------+
+                    | Grafana |
+                    +---------+
 ```
 
-## 3. Transaction Flow
+## 3. Request and Transaction Flow
+
+The implemented transaction path is designed to keep authentication lightweight while preserving database correctness for financial state changes.
 
 ```text
 Client
   |
-  | POST /transactions
+  | POST /api/v1/transactions
   v
-Authentication
-  |
-  v
-Input Validation
+JWT validation
   |
   v
-Rate / Velocity Checks
+Authenticated user ID from token
   |
   v
-Idempotency Check
+Pydantic request validation
   |
   v
-Database Transaction
+Idempotency lookup
   |
-  +--> Transaction Record
+  +---- existing key ----> return existing transaction/result
   |
-  +--> Outbox Event
-  |
-  v
-Return transaction state
-  |
-  v
-Outbox / Queue
-  |
-  +--> Risk Worker
-  |      |
-  |      +--> Feature extraction
-  |      +--> NumPy risk calculation
-  |
-  +--> Analytics Worker
-         |
-         +--> Pandas aggregation
+  +---- new key ---------> continue
+                           |
+                           v
+                    PostgreSQL transaction
+                           |
+                           +--> lock account row
+                           |
+                           +--> validate/update account state
+                           |
+                           +--> create transaction
+                           |
+                           +--> create risk job
+                           |
+                           v
+                         COMMIT
+                           |
+                           v
+                     HTTP response
+
+Risk job processing is handled separately by the database-backed worker.
 ```
 
-## 4. Database Design
+The current transaction endpoint uses a JWT-derived user ID instead of accepting the user identity from the request body. This prevents a caller from changing the owner of a transaction by submitting another user's ID.
 
-Core tables:
+## 4. Application Layers
 
-### users
+### API layer
+
+FastAPI routes expose the HTTP interface and handle authentication dependencies, request validation, and HTTP responses.
+
+Current application capabilities include:
+
+- authentication/login
+- authenticated user access
+- transaction creation
+- health checking
+- Prometheus-compatible metrics
+
+### Service layer
+
+Business logic is separated from route handlers. The transaction service coordinates idempotency checks, account locking, transaction creation, risk-job creation, and database commit handling.
+
+The risk engine and analytics processing are also implemented as separate services.
+
+### Data-access layer
+
+SQLAlchemy provides the database session and ORM mappings. Alembic manages schema migrations.
+
+## 5. Authentication and Authorization
+
+Authentication uses signed JWT access tokens.
+
+```text
+Login request
+     |
+     v
+Credential verification
+     |
+     v
+JWT creation
+     |
+     v
+Bearer token
+     |
+     v
+Protected API
+     |
+     v
+JWT validation
+     |
+     +--> user ID
+     +--> role
+```
+
+Two authentication paths are used for different purposes:
+
+- A database-backed authenticated-user dependency is used when the request needs user data or role information.
+- The transaction path uses a JWT-only dependency that validates the token and extracts the UUID user ID without an additional user lookup for every transaction request.
+
+Role information is used for authorization/RBAC checks on protected operations.
+
+The login endpoint is protected by an atomic Redis rate limiter to reduce repeated authentication attempts.
+
+## 6. Redis Rate Limiting
+
+Redis is used for short-lived control state rather than as the source of truth for financial balances.
+
+The login rate limiter uses a Redis Lua script so the increment and expiration are performed atomically.
+
+```text
+Request
+  |
+  v
+Redis key for client
+  |
+  v
+Atomic INCR + EXPIRE
+  |
+  +---- under limit ----> process request
+  |
+  +---- over limit -----> HTTP 429
+```
+
+The configured login limit in the current application is 5 requests per 60 seconds per client host.
+
+## 7. Database Architecture
+
+PostgreSQL is the authoritative store for users, merchants, accounts, transactions, and risk-job state.
+
+### Users
+
+```text
+id              UUID primary key
+email            unique/indexed email
+password_hash   optional hashed password
+role            user role
+```
+
+
+
+### Merchants
 
 ```text
 id
-name
 email
-status
-created_at
 ```
 
-### accounts
+Merchant email is unique and indexed.
+
+### Accounts
 
 ```text
 id
@@ -117,10 +228,13 @@ user_id
 balance
 currency
 version
+created_at
 updated_at
 ```
 
-### transactions
+Important invariants include a unique user-to-account relationship and a non-negative balance constraint.
+
+### Transactions
 
 ```text
 id
@@ -133,296 +247,315 @@ idempotency_key
 payment_token
 created_at
 updated_at
-```
-
-Important constraints:
-
-* unique idempotency key
-* foreign keys
-* non-negative amount
-* valid transaction state transitions
-
-### risk_results
-
-```text
-transaction_id
 risk_score
-decision
-model_version
-created_at
+risk_decision
+risk_processed_at
 ```
 
-### transaction_events
+Important constraints include:
+
+- primary-key identity using UUIDs
+- foreign-key relationships to user and merchant
+- positive transaction amount
+- unique idempotency key
+- risk score bounded to the configured 0-100 range
+
+### Risk Jobs
 
 ```text
 id
 transaction_id
-event_type
-metadata
+status
+attempts
+available_at
+last_error
 created_at
+updated_at
 ```
 
-### security_events
+Each transaction has at most one risk job. The job keeps retry/availability state independently from the transaction record.
+
+## 8. Idempotency
+
+Idempotency prevents a retried transaction request from creating a second logical transaction.
 
 ```text
-id
-event_type
-severity
-user_id
-source
-metadata
-created_at
+Request + Idempotency-Key
+          |
+          v
+Application lookup
+          |
+     +----+----+
+     |         |
+ existing     absent
+     |         |
+     v         v
+return      create transaction
+previous        |
+result          v
+          database unique constraint
 ```
 
-## 5. Idempotency
+The application performs an early lookup for the common duplicate case, while PostgreSQL enforces uniqueness at the database boundary. This protects the system when concurrent requests race on the same key.
 
-Every transaction creation request should support an idempotency key.
+## 9. Concurrency and Double-Spend Protection
 
-```text
-Request
-   |
-   v
-idempotency_key lookup
-   |
-   +-- exists --> return previous result
-   |
-   +-- absent --> create transaction
-```
-
-The database must enforce uniqueness because an application-only check is vulnerable to concurrent requests.
-
-## 6. Double-Spend Protection
-
-A balance update must be atomic.
-
-Example conceptual flow:
+Account state is protected using a PostgreSQL row lock during the transaction flow.
 
 ```text
 BEGIN
   |
   v
-Lock/read account state
+SELECT account FOR UPDATE
   |
   v
 Check available balance
   |
-  +-- insufficient --> ROLLBACK
+  +---- insufficient ----> rollback
   |
-  +-- sufficient --> update balance
-                       |
-                       v
-                    COMMIT
+  +---- sufficient ------> update account
+                              |
+                              v
+                         create transaction
+                              |
+                              v
+                            COMMIT
 ```
 
-Concurrency tests must verify that simultaneous withdrawals cannot create an invalid negative balance.
+The row-level lock serializes competing updates to the same account so two concurrent withdrawals cannot both consume the same available balance based on stale state.
 
-## 7. Risk Engine
+Concurrency tests exercise this behavior.
 
-The risk engine calculates features such as:
+## 10. Risk Engine
+
+The current risk engine is a deterministic NumPy-based heuristic, not a trained machine-learning model.
+
+The engine combines normalized risk features using fixed weights:
 
 ```text
-transaction velocity
-amount deviation
-recent transaction count
-new device indicator
-new merchant indicator
-location anomaly indicator
+weights = [0.40, 0.30, 0.20, 0.10]
 ```
 
-NumPy performs numerical calculations.
-
-The first implementation should be a transparent rule/statistical scoring engine rather than an unexplained ML model.
-
-Example conceptual output:
+The resulting score is mapped to a 0-100 range and classified as:
 
 ```text
-risk_score = 0.0 ... 1.0
-
-low score     -> normal processing
-medium score  -> additional verification / review
-high score    -> block or hold according to configured rules
+risk_score < 40    -> ALLOW
+40 <= score < 70   -> REVIEW
+score >= 70        -> BLOCK
 ```
 
-## 8. Analytics Engine
+This design is intentionally transparent and reproducible, which makes it suitable for automated testing and debugging.
 
-Pandas processes synthetic historical transactions for:
+## 11. Concurrent Risk Worker
 
-* daily transaction counts
-* transaction volume
-* merchant summaries
-* average transaction amount
-* anomaly summaries
-* failure rates
+Risk processing is decoupled from the main transaction request by a PostgreSQL-backed `RiskJob` record.
 
-Large synthetic datasets should be used to benchmark processing performance.
-
-## 9. Redis
-
-Redis can support:
-
-* rate-limit counters
-* velocity windows
-* short-lived cache
-* temporary authentication/risk state
-
-Redis must not become the sole source of truth for financial balances.
-
-## 10. Queue / Asynchronous Processing
-
-A message queue separates transaction acceptance from background processing.
-
-Workers:
+The worker selects pending/available jobs using row-level locking with `FOR UPDATE SKIP LOCKED`.
 
 ```text
-Risk Worker
-Analytics Worker
-Outbox Worker
+Risk Jobs
+   |
+   v
+SELECT pending jobs
+FOR UPDATE SKIP LOCKED
+   |
+   v
+Increment attempts
+   |
+   v
+NumPy risk calculation
+   |
+   +---- success ----> persist score/decision
+   |
+   +---- retry ------> update availability/error
+   |
+   +---- failure ----> persist failed state/error
 ```
 
-The system should tolerate:
+`SKIP LOCKED` allows multiple workers to process different jobs without waiting on rows already claimed by another worker.
 
-* duplicate messages
-* worker restart
-* temporary queue failure
-* processing retry
+## 12. Pandas Analytics
 
-## 11. Outbox Pattern
+Pandas is used for transaction analytics rather than for request-path persistence.
 
-Transaction state and the corresponding event should be committed atomically.
+The analytics service builds a DataFrame from transaction records and performs operations such as:
 
-```text
-PostgreSQL
-+-------------------+
-| transaction       |
-| outbox_event      |
-+-------------------+
-          |
-          v
-     Outbox Worker
-          |
-          v
-       Queue
-```
+- numeric conversion and normalization
+- transaction counts
+- status distributions
+- risk-decision distributions
+- aggregate transaction statistics
+- optional time-window filtering
 
-This prevents the failure mode where the transaction commits but event publication is lost.
-
-## 12. Security Architecture
-
-### Edge
-
-* TLS
-* HSTS
-* WAF/rate limiting in real deployments
-* application-layer request limits
-
-### API
-
-* authentication
-* authorization
-* RBAC
-* input validation
-* rate limiting
-* secure error responses
-
-### Database
-
-* parameterized queries / SQLAlchemy
-* least-privilege database credentials
-* constraints
-* encrypted transport in production
-
-### Application
-
-* no raw card storage
-* synthetic payment tokens
-* secret management through environment/secret-management mechanisms
-* structured security logging
-* audit trail
+The service handles empty datasets explicitly so analytics calls do not fail simply because no transactions match the requested range.
 
 ## 13. Observability
 
+The application exposes Prometheus-compatible metrics through `/metrics/`.
+
 ```text
-FastAPI / Workers
-      |
-      +--> Metrics --> Prometheus --> Grafana
-      |
-      +--> Structured Logs
-      |
-      +--> Security Events
-      |
-      +--> Audit Events
+FastAPI
+  |
+  +--> request counter
+  |
+  +--> request latency histogram
+  |
+  v
+Prometheus
+  |
+  v
+Grafana
 ```
 
-Important metrics:
+Current application metrics include:
 
 ```text
 http_requests_total
-http_request_duration
-transaction_success_total
-transaction_failure_total
-risk_decisions_total
-queue_depth
-db_connection_usage
-rate_limit_events_total
-security_events_total
+http_request_duration_seconds
 ```
 
-## 14. Failure Model
+The request counter is labeled by HTTP method, request path, and response status. The latency histogram is labeled by method and path and provides bucket data for percentile calculations in Prometheus/Grafana.
 
-Expected failures:
+The current Docker Compose observability stack uses:
 
 ```text
-Database unavailable
-Redis unavailable
-Queue unavailable
-Worker crash
-Risk timeout
-Network timeout
-Connection pool exhaustion
-Partial transaction failure
-Duplicate event
+Prometheus -> port 9090
+Grafana    -> port 3000
 ```
 
-Each failure should have:
+Grafana is provisioned with the Prometheus datasource and the `Transaction Platform Overview` dashboard.
+
+## 14. Performance and Load Testing
+
+Locust is used to generate concurrent synthetic transaction traffic.
+
+The current benchmark flow is:
 
 ```text
-Detection
-Mitigation
-Recovery
-Automated test
+Locust users
+    |
+    v
+JWT-authenticated transaction requests
+    |
+    v
+FastAPI
+    |
+    +--> Redis
+    +--> PostgreSQL
+    +--> RiskJob creation
+    |
+    v
+Prometheus metrics
 ```
 
-## 15. Deployment
-
-Initial target:
+A verified local Docker benchmark used 100 concurrent users for 30 seconds and produced:
 
 ```text
-Docker Compose
+Requests:    3,196
+Failures:    0
+Throughput:  108.76 req/s
+P50:         680 ms
+P95:         860 ms
+P99:         1,000 ms
+Max:         1,200 ms
 ```
 
-Containers:
+These figures are local development measurements, not production capacity guarantees.
+
+## 15. Testing Architecture
+
+The test suite is organized by behavior and integration boundary.
 
 ```text
-api
-worker
-postgres
-redis
-queue
-prometheus
-grafana
+Unit
+ |-- risk engine
+ |-- analytics
+
+API
+ |-- authentication
+ |-- transactions
+
+Security
+ |-- BOLA/IDOR
+ |-- rate limiting
+
+Concurrency
+ |-- transaction concurrency
+
+Integration
+ |-- database
+ |-- transaction analytics + DB
+
+Workers
+ |-- risk worker
+
+Health / regression
+ |-- health endpoint
 ```
 
-Cloud deployment is optional and should not be required for the resume version.
+The latest verified local test run passed 42 tests, with two dependency deprecation warnings.
 
-## 16. Design Principles
+Static quality checks include Ruff and Mypy.
 
-1. Database is the source of truth for financial state.
-2. Every protected resource requires authorization.
-3. Idempotency is enforced at the database boundary.
-4. Financial updates are atomic.
-5. Background processing is retryable.
-6. Security events are observable.
-7. Every important failure mode has a test.
-8. Performance claims must be backed by measurements.
-9. Secrets and payment credentials are never committed.
-10. Complexity should be added only when it demonstrates a real engineering requirement.
+The GitHub Actions workflow also provisions PostgreSQL and Redis, applies Alembic migrations, runs lint/type checks, and executes the test suite.
+
+## 16. Docker Deployment
+
+The local deployment is defined by Docker Compose.
+
+```text
+transaction-app
+transaction-postgres
+transaction-redis
+transaction-prometheus
+transaction-grafana
+```
+
+The application container runs Alembic migrations before starting Uvicorn.
+
+Environment configuration is provided through Docker Compose and `.env`; the JWT secret is required through the Compose variable `${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set}` rather than being hard-coded in the Compose file.
+
+## 17. Migrations
+
+Alembic controls the PostgreSQL schema lifecycle.
+
+The current migration chain includes changes for:
+
+- initial schema
+- strengthened constraints/indexes
+- authentication fields
+- risk-processing fields
+- removal of a redundant idempotency index
+
+The repository is expected to remain at the migration head, and `alembic check` is used to detect model/schema drift.
+
+## 18. Design Principles
+
+1. PostgreSQL is the source of truth for financial state.
+2. Authorization is based on the authenticated identity, not a client-supplied owner ID.
+3. Database constraints protect invariants that application-only checks cannot guarantee.
+4. Idempotency is enforced at the database boundary.
+5. Account updates use transactional row locking for concurrency correctness.
+6. Redis is used for transient control state such as rate limiting, not as the balance store.
+7. Risk processing is retryable and isolated from the synchronous transaction request.
+8. Observability is built into the HTTP layer through Prometheus metrics.
+9. Performance claims are documented only from executed benchmarks.
+10. Only synthetic payment data is used.
+
+## 19. Current Scope and Limitations
+
+The current implementation is intentionally a portfolio-scale backend simulation.
+
+It does not implement or claim:
+
+- real payment settlement
+- real card-number storage or processing
+- PCI-DSS compliance
+- production WAF/DDoS protection
+- external message-broker infrastructure
+- a production outbox/event-bus architecture
+- bank-grade fraud detection
+- multi-user SaaS deployment
+- production capacity guarantees
+
+These boundaries are deliberate so that the repository reflects the functionality that is actually implemented and tested.

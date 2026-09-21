@@ -1,241 +1,465 @@
 # Secure High-Throughput Transaction Processing Platform
 
-A portfolio-grade backend engineering project designed around a realistic high-volume financial transaction workflow.
+A security-focused backend engineering project that simulates a high-throughput financial transaction workflow using synthetic users, accounts, merchants, transactions, and payment tokens.
 
-The project demonstrates:
+The project is designed to demonstrate practical backend engineering across API development, database consistency, concurrency, security, background processing, analytics, automated testing, CI/CD, load testing, and observability.
 
-* Python backend development with FastAPI
-* PostgreSQL database design and query optimization
-* Redis caching and rate limiting
-* NumPy-based transaction risk calculations
-* Pandas-based transaction analytics
-* Idempotency and duplicate-transaction protection
-* Concurrency control and double-spend prevention
-* Asynchronous/event-driven processing
-* Authentication, authorization and RBAC
-* API security testing
-* Security-event logging and audit trails
-* Failure handling, retries and timeouts
-* Load, stress, spike and soak testing
-* CI/CD using GitHub Actions
-* Docker-based local deployment
-* Prometheus/Grafana observability
+> **Scope:** This is a portfolio/educational simulation. It does not process real money, store real card data, or claim PCI-DSS compliance or production payment-processing readiness.
 
-> Important: This is a simulation/portfolio project. It must use synthetic users, transactions and payment tokens. It is not a real payment processor and should not store real card data.
+## Tech Stack
 
-## Project Goals
+| Area | Technology |
+|---|---|
+| Language | Python 3.12 |
+| API | FastAPI |
+| ORM / DB access | SQLAlchemy |
+| Database | PostgreSQL |
+| Migrations | Alembic |
+| Rate limiting | Redis |
+| Numerical processing | NumPy |
+| Analytics | Pandas |
+| Authentication | JWT, pwdlib/Argon2 |
+| Testing | Pytest |
+| Load testing | Locust |
+| Containers | Docker / Docker Compose |
+| CI | GitHub Actions |
+| Metrics | Prometheus |
+| Dashboards | Grafana |
+| Static analysis | Ruff, Mypy |
 
-The project is intentionally designed to cover the major engineering areas expected from a backend software engineer:
+## What the Project Implements
 
-1. Scalable Python services
-2. High-performance data processing
-3. SQL database design and optimization
-4. API development
-5. Security
-6. Concurrency and distributed-system reliability
-7. Automated testing
-8. CI/CD
-9. Performance benchmarking
-10. Monitoring and observability
+### Transaction API
 
-## Planned Architecture
+The backend exposes a FastAPI transaction workflow with request validation, authenticated user context, idempotency protection, PostgreSQL persistence, and background risk processing.
+
+### Authentication and Authorization
+
+- JWT-based authentication
+- Role-based authorization
+- Database-backed user lookup where resource access requires it
+- JWT-only user identity extraction on the transaction creation path to avoid an unnecessary user-table lookup per request
+- Login rate limiting through Redis
+
+### Transaction Safety
+
+- Database-enforced unique idempotency keys
+- PostgreSQL transactions for consistent state changes
+- Concurrency control for account access
+- Protection against duplicate transaction creation
+- Authorization based on the authenticated JWT identity rather than a client-supplied user ID
+
+### Risk Processing
+
+A deterministic NumPy-based risk engine scores transactions on a `0–100` scale and maps the result to an action:
 
 ```text
-                         Internet
-                            |
-                     +------+------+
-                     | WAF / Edge  |
-                     | DDoS / Rate |
-                     +------+------+
-                            |
-                     +------+------+
-                     | API Gateway |
-                     | TLS / HSTS  |
-                     +------+------+
-                            |
-                     +------+------+
-                     | Auth / RBAC |
-                     +------+------+
-                            |
-                     +------+------+
-                     | Transaction |
-                     |    API      |
-                     +------+------+
-                            |
-              +-------------+-------------+
-              |             |             |
-              v             v             v
-        PostgreSQL        Redis       Message Queue
-              |                           |
-              |                    +------+------+
-              |                    |             |
-              v                    v             v
-        Transaction DB        Risk Worker   Analytics Worker
-                                  |              |
-                                  v              v
-                              NumPy           Pandas
+score < 40    -> ALLOW
+40 <= score < 70 -> REVIEW
+score >= 70   -> BLOCK
+```
 
-                 +-----------------------------+
-                 | Monitoring / Audit / Alerts |
-                 | Prometheus + Grafana        |
-                 +-----------------------------+
+Risk processing is handled through a database-backed `RiskJob` workflow. Multiple workers can safely claim pending jobs using row locking with `FOR UPDATE SKIP LOCKED`.
+
+The risk engine is intentionally transparent and rule/statistical based; it is not presented as a trained fraud-detection ML model.
+
+### Pandas Analytics
+
+The analytics service converts transaction data into Pandas DataFrames and provides summary information such as:
+
+- transaction counts
+- status distributions
+- risk-decision distributions
+- aggregate transaction statistics
+- optional time-window filtering
+
+### Observability
+
+The application exposes Prometheus-compatible metrics at:
+
+```text
+GET /metrics/
+```
+
+The Docker Compose monitoring stack includes Prometheus and Grafana. Grafana provisions a `Transaction Platform Overview` dashboard backed by Prometheus.
+
+## Architecture
+
+```text
+                    Client
+                      |
+                      v
+              +----------------+
+              |    FastAPI     |
+              +--------+-------+
+                       |
+          +------------+-------------+
+          |            |             |
+          v            v             v
+       JWT/Auth      Redis       Transactions
+          |         Rate Limit        |
+          |                            v
+          |                       PostgreSQL
+          |                            |
+          |                     +------+------+
+          |                     |             |
+          |                     v             v
+          |                 Transactions   Risk Jobs
+          |                                   |
+          |                                   v
+          |                           Concurrent Worker
+          |                                   |
+          |                                   v
+          |                             NumPy Risk Engine
+          |
+          +------------------------------+
+                                         |
+                                    Pandas Analytics
+
+           FastAPI Metrics
+                 |
+                 v
+             Prometheus
+                 |
+                 v
+              Grafana
 ```
 
 See [Architecture.md](Architecture.md) for the detailed design.
 
-## Core APIs
-
-Planned endpoints:
+## Main API Endpoints
 
 ```text
-POST   /api/v1/transactions
-GET    /api/v1/transactions/{transaction_id}
-POST   /api/v1/transactions/{transaction_id}/retry
-GET    /api/v1/users/{user_id}/transactions
-GET    /api/v1/merchants/{merchant_id}/transactions
-GET    /api/v1/analytics/daily
-GET    /health
-GET    /metrics
+POST /api/v1/auth/login
+GET  /api/v1/auth/me
+POST /api/v1/transactions
+GET  /health
+GET  /metrics/
 ```
 
-## Security Scope
+The exact request and response schemas are defined in the FastAPI application and Pydantic models.
 
-The project will explicitly test and mitigate:
+## Security Controls
 
-1. BIN/card-testing abuse
-2. SQL injection
-3. Man-in-the-middle risks
-4. BOLA/IDOR
-5. XSS
-6. CSRF where cookie-based browser authentication is used
-7. DDoS/application-layer flooding
-8. Brute-force authentication
-9. Credential stuffing
-10. Replay attacks
-11. Double spending
-12. Race conditions
-13. Duplicate transactions
-14. Token/session abuse
-15. Privilege escalation
-16. SSRF
-17. Malicious file/input handling where applicable
-18. Secret leakage
-19. Log injection
-20. Sensitive-data exposure
-21. Dependency vulnerabilities
-22. Container vulnerabilities
+The implemented security scope includes:
 
-Security controls will be implemented as appropriate to the simulated system, and every important control should have an automated test.
+- JWT authentication
+- RBAC / role checks
+- Redis-backed atomic login rate limiting
+- database-enforced idempotency
+- BOLA/IDOR protection
+- Pydantic input validation
+- SQLAlchemy parameterized database access
+- synthetic payment tokens only
+- environment-based secret configuration
+- secure error handling and security-focused automated tests
 
-## Reliability Scope
+The project deliberately does **not** claim to provide production-grade WAF, DDoS protection, PCI-DSS compliance, or real payment-card security.
 
-The system will test:
+## Database Design
 
-* Database timeout
-* Redis failure
-* Queue failure
-* Worker crash
-* Risk-service timeout
-* Retry behavior
-* Partial failure
-* Duplicate messages
-* Idempotent retries
-* Transaction rollback
-* Concurrent balance updates
+The current relational model includes:
 
-## Performance Scope
+```text
+users
+merchants
+accounts
+transactions
+risk_jobs
+```
 
-Load testing will use Locust.
+Important database properties include:
 
-We will measure:
+- UUID primary keys
+- indexed and unique email fields where applicable
+- foreign-key relationships
+- monetary values stored using fixed-precision numeric types
+- non-negative account balances
+- unique idempotency keys
+- transaction/risk-job relationships
+- constraints for valid monetary and risk-score values
 
-* Requests/second
-* P50 latency
-* P95 latency
-* P99 latency
-* Error rate
-* CPU usage
-* Memory usage
-* Database connections
-* Queue depth
+Alembic manages schema migrations.
 
-Performance numbers will be recorded only after actual benchmark execution.
+## Redis Usage
+
+Redis is used for short-lived application state, primarily for atomic login rate limiting.
+
+The rate limiter uses an atomic Lua script to combine increment and expiration behavior, avoiding a race between separate `INCR` and `EXPIRE` operations.
+
+Redis is not the source of truth for account balances or transaction state.
 
 ## Testing
 
-See [TestingList.md](TestingList.md) for the complete testing plan.
-
-Target categories:
+The test suite covers the implemented backend behavior across:
 
 ```text
-Unit
-API / Functional
-Integration
-Database
-Security
-Concurrency
-Reliability / Failure
-Data / Analytics
-Regression
-Performance
-Load
-Stress
-Spike
-Soak
-CI/CD
+Unit tests
+API tests
+Authentication tests
+Database integration tests
+Security tests
+Concurrency tests
+Risk-worker tests
+Analytics tests
 ```
 
-## Development Rules
-
-* Use clean, modular Python code.
-* Use type hints.
-* Validate API input with Pydantic.
-* Never construct SQL from untrusted strings.
-* Never store real card numbers.
-* Use synthetic payment tokens.
-* Apply authorization checks to every protected resource.
-* Make transaction operations idempotent where required.
-* Use database transactions for financial state changes.
-* Add a regression test for every discovered bug.
-* Do not claim security guarantees that have not been tested.
-* Do not publish fabricated performance numbers.
-
-## Local Development
-
-Planned local stack:
+### Latest verified test result
 
 ```text
-Python 3.12+
+42 passed
+2 warnings
+```
+
+The two warnings are deprecation warnings from the test/dependency stack; they do not represent failing tests.
+
+### Code quality
+
+Verified locally:
+
+```text
+Ruff  -> All checks passed
+Mypy  -> Success: no issues found in 27 source files
+Pytest -> 42 passed
+```
+
+Database migration validation also passes:
+
+```text
+alembic current -> 48b98ec03172 (head)
+alembic check   -> No new upgrade operations detected
+```
+
+## Load Testing
+
+Locust is used to exercise the transaction creation endpoint with synthetic users and unique idempotency keys/payment tokens.
+
+### Verified Docker benchmark
+
+Configuration:
+
+```text
+Users:       100 concurrent users
+Spawn rate:  10 users/second
+Duration:    30 seconds
+Endpoint:    POST /api/v1/transactions
+```
+
+Result:
+
+| Metric | Result |
+|---|---:|
+| Requests | 3,196 |
+| Failures | 0 |
+| Error rate | 0.00% |
+| Throughput | 108.76 req/s |
+| P50 | 680 ms |
+| P95 | 860 ms |
+| P99 | 1,000 ms |
+| Maximum | 1,200 ms |
+
+These are local development-machine measurements, not a production capacity guarantee.
+
+## Monitoring
+
+The local observability stack is:
+
+```text
 FastAPI
-PostgreSQL
-Redis
-Docker Compose
-NumPy
-Pandas
-Pytest
-Locust
-Prometheus
-Grafana
+  |
+  +--> Prometheus metrics --> Prometheus --> Grafana
 ```
 
-The project should be runnable locally without paid cloud infrastructure.
+Verified components:
 
-## Project Status
+- Prometheus is scraping the FastAPI application's metrics endpoint.
+- Grafana runs on version `13.2.2`.
+- The `Transaction Platform Overview` dashboard is provisioned automatically.
+- The Prometheus datasource is provisioned with UID `prometheus`.
 
-See [Progress.md](Progress.md).
+Local URLs:
+
+```text
+FastAPI     http://127.0.0.1:8000
+Prometheus  http://127.0.0.1:9090
+Grafana     http://127.0.0.1:3000
+```
+
+## Docker Compose
+
+The local Docker stack contains:
+
+```text
+transaction-app
+transaction-postgres
+transaction-redis
+transaction-prometheus
+transaction-grafana
+```
+
+Start the complete stack:
+
+```powershell
+docker compose up -d --build
+```
+
+Check container status:
+
+```powershell
+docker compose ps
+```
+
+Check the API:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+```
+
+## Local Setup
+
+1. Create the environment file from the template:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+2. Set a strong `JWT_SECRET_KEY` in `.env`. Keep `.env` local and never commit it.
+
+3. Start the stack:
+
+```powershell
+docker compose up -d --build
+```
+
+4. Verify the API:
+
+```powershell
+curl.exe http://127.0.0.1:8000/health
+```
+
+5. Run tests locally when the Python development environment is active:
+
+```powershell
+ruff check app tests
+mypy app
+pytest -q
+```
+
+## Load Test Example
+
+With the Docker API running:
+
+```powershell
+locust -f .\locustfile.py --headless -u 100 -r 10 -t 30s --host http://127.0.0.1:8000
+```
+
+The Locust workload uses synthetic test accounts and generated idempotency/payment-token values.
+
+## Project Structure
+
+```text
+app/
+├── api/
+│   ├── deps.py
+│   └── routes/
+├── core/
+│   ├── config.py
+│   ├── metrics.py
+│   └── security.py
+├── db/
+│   ├── base.py
+│   └── session.py
+├── models/
+│   └── entities.py
+├── schemas/
+│   ├── auth.py
+│   └── transaction.py
+├── services/
+│   ├── rate_limiter.py
+│   ├── risk_engine.py
+│   ├── transaction_analytics.py
+│   └── transaction_service.py
+└── workers/
+    └── risk_worker.py
+
+tests/
+├── api/
+├── concurrency/
+├── integration/
+├── security/
+├── unit/
+├── workers/
+└── test_health.py
+
+monitoring/
+├── prometheus.yml
+└── grafana/
+    ├── dashboards/
+    └── provisioning/
+
+Dockerfile
+docker-compose.yml
+locustfile.py
+requirements.txt
+pyproject.toml
+Architecture.md
+TestingList.md
+Progress.md
+```
+
+## CI/CD
+
+GitHub Actions runs the backend quality and test pipeline, including:
+
+- dependency installation
+- PostgreSQL and Redis services
+- database migration setup
+- Ruff checks
+- Mypy checks
+- Pytest
+
+The CI workflow has been successfully verified on GitHub for the implemented backend and containerization changes.
+
+## Engineering Principles
+
+- PostgreSQL is the source of truth for financial state.
+- Database constraints protect critical invariants.
+- Idempotency is enforced at the database boundary.
+- Protected resources derive user identity from authenticated credentials.
+- Concurrency-sensitive state changes are handled transactionally.
+- Background jobs are retryable and safe for concurrent claiming.
+- Metrics and benchmark claims are based on actual execution.
+- Secrets and real payment credentials are never committed.
+- Complexity is added only where it demonstrates a meaningful engineering requirement.
+
+## Known Scope and Limitations
+
+This project is intentionally a backend engineering simulation. It does not implement or claim:
+
+- real-money settlement
+- real credit/debit card processing
+- PCI-DSS certification or compliance
+- production WAF/DDoS protection
+- bank-grade fraud detection
+- cloud production deployment
+- production SLA or capacity guarantees
+- a real external message broker
+- production-scale distributed orchestration
+
+The system is intended for local development, testing, benchmarking, and portfolio demonstration.
 
 ## Resume Positioning
-
-Suggested resume title:
 
 **Secure High-Throughput Transaction Processing Platform**
 
 Suggested technologies:
 
-`Python, FastAPI, PostgreSQL, Redis, NumPy, Pandas, Pytest, Locust, Docker, GitHub Actions, Prometheus, Grafana`
+`Python, FastAPI, PostgreSQL, SQLAlchemy, Redis, NumPy, Pandas, Pytest, Locust, Docker, GitHub Actions, Prometheus, Grafana`
 
-Do not describe the project as a production payment gateway or PCI-compliant system. Describe it as a security-focused, high-throughput transaction-processing simulation.
+A concise project description for a resume:
+
+> Built a security-focused transaction-processing backend with FastAPI, PostgreSQL, Redis, JWT/RBAC, database-enforced idempotency, concurrency-safe transaction handling, a NumPy-based risk engine, Pandas analytics, automated testing, Docker, GitHub Actions, Locust load testing, and Prometheus/Grafana observability.
 
 ## License
 
-For portfolio/educational use. Add a project-specific open-source license before public distribution if desired.
+For portfolio/educational use. Add a project-specific open-source license before public distribution if required.
