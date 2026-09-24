@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+﻿from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -93,9 +93,16 @@ class Account(Base):
         default=uuid4,
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id"),
-        nullable=False,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
+    merchant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("merchants.id"),
+        nullable=True,
         unique=True,
         index=True,
     )
@@ -133,8 +140,98 @@ class Account(Base):
 
     __table_args__ = (
         CheckConstraint(
+            """
+            (user_id IS NOT NULL AND merchant_id IS NULL)
+            OR
+            (user_id IS NULL AND merchant_id IS NOT NULL)
+            """,
+            name="ck_accounts_single_owner",
+        ),
+        CheckConstraint(
             "balance >= 0",
             name="ck_accounts_balance_non_negative",
+        ),
+    )
+
+
+class CashOperation(Base):
+    __tablename__ = "cash_operations"
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True,
+        default=uuid4,
+    )
+
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=False,
+        index=True,
+    )
+
+    manager_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    operation_type: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        index=True,
+    )
+
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    currency: Mapped[str] = mapped_column(
+        String(3),
+        nullable=False,
+    )
+
+    balance_before: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    balance_after: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+
+    reason: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_cash_operations_idempotency_key",
+        ),
+        CheckConstraint(
+            "operation_type IN ('CREDIT', 'DEBIT')",
+            name="ck_cash_operations_type",
+        ),
+        CheckConstraint(
+            "amount > 0",
+            name="ck_cash_operations_amount_positive",
+        ),
+        CheckConstraint(
+            "balance_before >= 0 AND balance_after >= 0",
+            name="ck_cash_operations_balances_non_negative",
         ),
     )
 
@@ -147,14 +244,20 @@ class Transaction(Base):
         default=uuid4,
     )
 
-    user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id"),
+    transaction_type: Mapped[str] = mapped_column(
+        String(3),
         nullable=False,
         index=True,
     )
 
-    merchant_id: Mapped[UUID] = mapped_column(
-        ForeignKey("merchants.id"),
+    sender_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id"),
+        nullable=False,
+        index=True,
+    )
+
+    receiver_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("accounts.id"),
         nullable=False,
         index=True,
     )
@@ -219,6 +322,14 @@ class Transaction(Base):
         UniqueConstraint(
             "idempotency_key",
             name="uq_transactions_idempotency_key",
+        ),
+        CheckConstraint(
+            "transaction_type IN ('P2P', 'P2M', 'M2M', 'M2P')",
+            name="ck_transactions_type",
+        ),
+        CheckConstraint(
+            "sender_account_id <> receiver_account_id",
+            name="ck_transactions_distinct_accounts",
         ),
         CheckConstraint(
             "amount > 0",

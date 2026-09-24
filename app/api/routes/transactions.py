@@ -8,7 +8,6 @@ from app.services.exceptions import (
     AccountNotFoundError,
     IdempotencyConflictError,
     InsufficientFundsError,
-    MerchantNotFoundError,
 )
 from app.services.transaction_service import create_transaction
 
@@ -16,6 +15,7 @@ router = APIRouter(
     prefix="/api/v1/transactions",
     tags=["Transactions"],
 )
+
 
 IdempotencyHeader = Annotated[str, Header(alias="Idempotency-Key")]
 
@@ -37,22 +37,24 @@ def create_transaction_endpoint(
             detail="Idempotency-Key must not be empty.",
         )
 
+    # A normal participant must never choose an arbitrary sender account.
+    # The sender is resolved from the authenticated JWT.
+    if request.sender_account_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="sender_account_id must not be supplied for participant transfers.",
+        )
+
     try:
         transaction = create_transaction(
             db=db,
             user_id=user_id,
             request=request,
             idempotency_key=idempotency_key,
+            sender_account_id=None,
         )
 
         return TransactionResponse.model_validate(transaction)
-
-
-    except MerchantNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
 
     except AccountNotFoundError as exc:
         raise HTTPException(
@@ -69,5 +71,11 @@ def create_transaction_endpoint(
     except IdempotencyConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from app.models import Transaction
 from app.services.transaction_analytics import generate_transaction_analytics
@@ -10,15 +10,16 @@ def test_generate_transaction_analytics_reads_from_database(
     db,
     transaction_test_data,
 ) -> None:
-    user_id = UUID(transaction_test_data["user_id"])
-    merchant_id = UUID(transaction_test_data["merchant_id"])
+    sender_account_id = transaction_test_data["account_id"]
+    receiver_account_id = transaction_test_data["merchant_account_id"]
 
     now = datetime.now(UTC)
 
     transactions = [
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("100.00"),
             currency="INR",
             status="COMPLETED",
@@ -29,8 +30,9 @@ def test_generate_transaction_analytics_reads_from_database(
             created_at=now - timedelta(hours=2),
         ),
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("300.00"),
             currency="INR",
             status="COMPLETED",
@@ -41,8 +43,9 @@ def test_generate_transaction_analytics_reads_from_database(
             created_at=now - timedelta(minutes=30),
         ),
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("600.00"),
             currency="INR",
             status="PENDING",
@@ -79,15 +82,16 @@ def test_generate_transaction_analytics_supports_time_range(
     db,
     transaction_test_data,
 ) -> None:
-    user_id = UUID(transaction_test_data["user_id"])
-    merchant_id = UUID(transaction_test_data["merchant_id"])
+    sender_account_id = transaction_test_data["account_id"]
+    receiver_account_id = transaction_test_data["merchant_account_id"]
 
     now = datetime.now(UTC)
 
     transactions = [
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("100.00"),
             currency="INR",
             status="COMPLETED",
@@ -97,8 +101,9 @@ def test_generate_transaction_analytics_supports_time_range(
             created_at=now - timedelta(hours=3),
         ),
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("250.00"),
             currency="INR",
             status="COMPLETED",
@@ -108,8 +113,9 @@ def test_generate_transaction_analytics_supports_time_range(
             created_at=now - timedelta(hours=1),
         ),
         Transaction(
-            user_id=user_id,
-            merchant_id=merchant_id,
+            transaction_type="P2M",
+            sender_account_id=sender_account_id,
+            receiver_account_id=receiver_account_id,
             amount=Decimal("400.00"),
             currency="INR",
             status="FAILED",

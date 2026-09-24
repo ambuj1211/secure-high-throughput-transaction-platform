@@ -45,3 +45,4 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+transactions_before_transfer_migration.sql

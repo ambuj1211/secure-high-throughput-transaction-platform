@@ -1,9 +1,16 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentAdmin, CurrentUser, DBSession, enforce_login_rate_limit
+from app.api.deps import (
+    CurrentAdmin,
+    CurrentUser,
+    DBSession,
+    enforce_login_rate_limit,
+)
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import User
+from app.models import Account, User
 from app.schemas.auth import (
     LoginRequest,
     RegisterRequest,
@@ -41,6 +48,19 @@ def register(request: RegisterRequest, db: DBSession):
     )
 
     db.add(user)
+
+    # Assign the generated user ID before creating the account.
+    db.flush()
+
+    account = Account(
+        user_id=user.id,
+        balance=Decimal("0.00"),
+        currency="INR",
+    )
+
+    db.add(account)
+
+    # User and account are committed atomically.
     db.commit()
     db.refresh(user)
 

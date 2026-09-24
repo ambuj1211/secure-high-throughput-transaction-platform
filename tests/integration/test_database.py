@@ -25,18 +25,25 @@ def test_create_user_merchant_account_transaction() -> None:
         db.add_all([user, merchant])
         db.flush()
 
-        account = Account(
+        user_account = Account(
             user_id=user.id,
             balance=Decimal("10000.00"),
             currency="INR",
         )
 
-        db.add(account)
+        merchant_account = Account(
+            merchant_id=merchant.id,
+            balance=Decimal("0.00"),
+            currency="INR",
+        )
+
+        db.add_all([user_account, merchant_account])
         db.flush()
 
         transaction = Transaction(
-            user_id=user.id,
-            merchant_id=merchant.id,
+            transaction_type="P2M",
+            sender_account_id=user_account.id,
+            receiver_account_id=merchant_account.id,
             amount=Decimal("2000.00"),
             currency="INR",
             status="PENDING",
@@ -49,9 +56,19 @@ def test_create_user_merchant_account_transaction() -> None:
 
         assert user.id is not None
         assert merchant.id is not None
-        assert account.id is not None
+        assert user_account.id is not None
+        assert merchant_account.id is not None
         assert transaction.id is not None
-        assert account.balance == Decimal("10000.00")
+
+        assert transaction.transaction_type == "P2M"
+        assert transaction.sender_account_id == user_account.id
+        assert transaction.receiver_account_id == merchant_account.id
+        assert transaction.amount == Decimal("2000.00")
+
+        # Account balance is unchanged here because this test only
+        # verifies direct ORM transaction creation.
+        assert user_account.balance == Decimal("10000.00")
+        assert merchant_account.balance == Decimal("0.00")
 
     finally:
         db.rollback()
@@ -75,9 +92,25 @@ def test_negative_transaction_amount_rejected() -> None:
         db.add_all([user, merchant])
         db.flush()
 
-        transaction = Transaction(
+        user_account = Account(
             user_id=user.id,
+            balance=Decimal("10000.00"),
+            currency="INR",
+        )
+
+        merchant_account = Account(
             merchant_id=merchant.id,
+            balance=Decimal("0.00"),
+            currency="INR",
+        )
+
+        db.add_all([user_account, merchant_account])
+        db.flush()
+
+        transaction = Transaction(
+            transaction_type="P2M",
+            sender_account_id=user_account.id,
+            receiver_account_id=merchant_account.id,
             amount=Decimal("-1.00"),
             currency="INR",
             status="PENDING",
@@ -142,9 +175,25 @@ def test_duplicate_idempotency_key_rejected() -> None:
         db.add_all([user, merchant])
         db.flush()
 
-        first_transaction = Transaction(
+        user_account = Account(
             user_id=user.id,
+            balance=Decimal("10000.00"),
+            currency="INR",
+        )
+
+        merchant_account = Account(
             merchant_id=merchant.id,
+            balance=Decimal("0.00"),
+            currency="INR",
+        )
+
+        db.add_all([user_account, merchant_account])
+        db.flush()
+
+        first_transaction = Transaction(
+            transaction_type="P2M",
+            sender_account_id=user_account.id,
+            receiver_account_id=merchant_account.id,
             amount=Decimal("100.00"),
             currency="INR",
             status="PENDING",
@@ -156,8 +205,9 @@ def test_duplicate_idempotency_key_rejected() -> None:
         db.flush()
 
         second_transaction = Transaction(
-            user_id=user.id,
-            merchant_id=merchant.id,
+            transaction_type="P2M",
+            sender_account_id=user_account.id,
+            receiver_account_id=merchant_account.id,
             amount=Decimal("200.00"),
             currency="INR",
             status="PENDING",

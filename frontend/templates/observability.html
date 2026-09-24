@@ -1,0 +1,175 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Observability · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<header class="page-header">
+
+    <div>
+
+        <div class="eyebrow">
+            OBSERVABILITY
+        </div>
+
+        <h1>
+            Metrics and monitoring
+        </h1>
+
+        <p class="lead">
+            Prometheus provides metrics and Grafana provides the
+            complete monitoring dashboard.
+        </p>
+
+    </div>
+
+
+    <div class="action-row">
+
+        <a
+            class="secondary-button"
+            href="http://127.0.0.1:9090"
+            target="_blank"
+            rel="noreferrer"
+        >
+            Open Prometheus
+        </a>
+
+
+        <a
+            class="primary-button"
+            href="http://127.0.0.1:3000/d/transaction-platform/transaction-platform-overview"
+            target="_blank"
+            rel="noreferrer"
+        >
+            Open Grafana
+        </a>
+
+    </div>
+
+</header>
+
+
+<section class="metrics-grid">
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Request rate
+        </span>
+
+        <strong>
+            {{ metrics.request_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            req/s · 1 minute
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Transaction rate
+        </span>
+
+        <strong>
+            {{ metrics.transaction_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            req/s · 1 minute
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            5xx rate
+        </span>
+
+        <strong>
+            {{ metrics.error_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            errors/s · 1 minute
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Transaction p95
+        </span>
+
+        <strong>
+            {{ metrics.transaction_p95|milliseconds }}
+        </strong>
+
+        <span class="metric-unit">
+            histogram · 1 minute
+        </span>
+
+    </article>
+
+</section>
+
+
+<section class="panel">
+
+    <div class="panel-heading">
+
+        <div>
+
+            <div class="eyebrow">
+                MONITORING FLOW
+            </div>
+
+            <h2>
+                Request → Metrics → Monitoring
+            </h2>
+
+        </div>
+
+    </div>
+
+
+    <div class="flow">
+
+        <div class="flow-step">
+            <span>01</span>
+            <strong>FastAPI</strong>
+            <small>/metrics/ endpoint</small>
+        </div>
+
+        <div class="flow-arrow">→</div>
+
+        <div class="flow-step">
+            <span>02</span>
+            <strong>Prometheus</strong>
+            <small>Application scraping</small>
+        </div>
+
+        <div class="flow-arrow">→</div>
+
+        <div class="flow-step">
+            <span>03</span>
+            <strong>Grafana</strong>
+            <small>Transaction Platform Overview</small>
+        </div>
+
+    </div>
+
+</section>
+
+{% endblock %}

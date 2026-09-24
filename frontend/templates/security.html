@@ -1,0 +1,176 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Security · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<header class="page-header">
+
+    <div>
+
+        <div class="eyebrow">
+            SECURITY CENTER
+        </div>
+
+        <h1>
+            Demonstrate backend controls
+        </h1>
+
+        <p class="lead">
+            Interactive checks use the real FastAPI security boundary.
+        </p>
+
+    </div>
+
+</header>
+
+
+<section class="content-grid two-column">
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    SECURITY SURFACE
+                </div>
+
+                <h2>
+                    Implemented controls
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <div class="control-list">
+
+            <div>
+                <strong>JWT authentication</strong>
+                <span>Access token issued by FastAPI</span>
+                <b>✓</b>
+            </div>
+
+            <div>
+                <strong>RBAC</strong>
+                <span>Role-based authorization boundary</span>
+                <b>✓</b>
+            </div>
+
+            <div>
+                <strong>BOLA protection</strong>
+                <span>Authenticated identity controls access</span>
+                <b>✓</b>
+            </div>
+
+            <div>
+                <strong>Redis rate limiting</strong>
+                <span>Atomic login limiter</span>
+                <b>✓</b>
+            </div>
+
+            <div>
+                <strong>Idempotency</strong>
+                <span>Database-enforced duplicate protection</span>
+                <b>✓</b>
+            </div>
+
+            <div>
+                <strong>Input validation</strong>
+                <span>Pydantic request validation</span>
+                <b>✓</b>
+            </div>
+
+        </div>
+
+    </article>
+
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    LIVE TEST
+                </div>
+
+                <h2>
+                    Invalid JWT
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <p class="lead">
+            Send a deliberately invalid bearer token to the existing
+            <code>/api/v1/auth/me</code> endpoint.
+        </p>
+
+
+        <form method="post">
+
+            <input
+                type="hidden"
+                name="action"
+                value="invalid_jwt"
+            >
+
+            <button
+                type="submit"
+                class="secondary-button"
+            >
+                Run invalid-token test
+            </button>
+
+        </form>
+
+
+        {% if test_result %}
+
+        <div
+            class="test-result
+            {% if test_result.passed %}
+                pass
+            {% else %}
+                fail
+            {% endif %}"
+        >
+
+            <div class="test-result-header">
+
+                <strong>
+                    {% if test_result.passed %}
+                        ✓ Test passed
+                    {% else %}
+                        ⚠ Unexpected result
+                    {% endif %}
+                </strong>
+
+                <span>
+                    HTTP {{ test_result.status }}
+                </span>
+
+            </div>
+
+
+            <pre>{{ test_result.body|pretty_json }}</pre>
+
+        </div>
+
+        {% endif %}
+
+    </article>
+
+</section>
+
+{% endblock %}

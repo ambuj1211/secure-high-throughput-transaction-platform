@@ -1,0 +1,321 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Transactions · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<header class="page-header">
+
+    <div>
+
+        <div class="eyebrow">
+            TRANSACTION CONSOLE
+        </div>
+
+        <h1>
+            Process a synthetic transaction
+        </h1>
+
+        <p class="lead">
+            This screen calls the existing FastAPI transaction endpoint.
+        </p>
+
+    </div>
+
+</header>
+
+
+<section class="content-grid two-column">
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    REQUEST
+                </div>
+
+                <h2>
+                    Create transaction
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <form
+            method="post"
+            class="form-stack"
+        >
+
+            <input
+                type="hidden"
+                name="action"
+                value="create"
+            >
+
+
+            <label>
+
+                <span>
+                    Merchant ID
+                </span>
+
+                <input
+                    name="merchant_id"
+                    value="{{ demo_merchant_id }}"
+                    required
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Amount
+                </span>
+
+                <div class="prefix-input">
+
+                    <span>₹</span>
+
+                    <input
+                        name="amount"
+                        value="0.01"
+                        inputmode="decimal"
+                        required
+                    >
+
+                </div>
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Currency
+                </span>
+
+                <input
+                    name="currency"
+                    value="INR"
+                    maxlength="3"
+                    required
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Payment token
+                </span>
+
+                <input
+                    name="payment_token"
+                    placeholder="Auto-generated if blank"
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Idempotency key
+                </span>
+
+                <input
+                    name="idempotency_key"
+                    placeholder="Auto-generated if blank"
+                >
+
+            </label>
+
+
+            <button
+                type="submit"
+                class="primary-button"
+            >
+                Process transaction
+            </button>
+
+        </form>
+
+
+        {% if last_request %}
+
+        <div class="replay-box">
+
+            <div>
+
+                <strong>
+                    Idempotency demonstration ready
+                </strong>
+
+                <span>
+                    Replay the exact same request and key.
+                </span>
+
+            </div>
+
+
+            <form method="post">
+
+                <input
+                    type="hidden"
+                    name="action"
+                    value="replay"
+                >
+
+                <button
+                    type="submit"
+                    class="secondary-button"
+                >
+                    Replay request
+                </button>
+
+            </form>
+
+        </div>
+
+        {% endif %}
+
+    </article>
+
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    RESPONSE
+                </div>
+
+                <h2>
+                    Backend result
+                </h2>
+
+            </div>
+
+
+            {% if status_code %}
+
+            <span
+                class="http-badge
+                {% if status_code in [200, 201] %}
+                    success
+                {% else %}
+                    error
+                {% endif %}"
+            >
+                HTTP {{ status_code }}
+            </span>
+
+            {% endif %}
+
+        </div>
+
+
+        {% if result %}
+
+        <div class="result-grid">
+
+            <div>
+                <span>Transaction ID</span>
+                <strong>{{ result.get("id", "—") }}</strong>
+            </div>
+
+            <div>
+                <span>Status</span>
+                <strong>{{ result.get("status", "—") }}</strong>
+            </div>
+
+            <div>
+                <span>Amount</span>
+                <strong>
+                    {{ result.get("amount", "—") }}
+                    {{ result.get("currency", "") }}
+                </strong>
+            </div>
+
+            <div>
+                <span>Risk score</span>
+                <strong>
+                    {{ result.get("risk_score", "—") }}
+                </strong>
+            </div>
+
+            <div>
+                <span>Risk decision</span>
+                <strong>
+                    {{ result.get("risk_decision", "—") }}
+                </strong>
+            </div>
+
+        </div>
+
+
+        <details
+            class="json-panel"
+            open
+        >
+
+            <summary>
+                Raw backend JSON
+            </summary>
+
+            <pre>{{ result|pretty_json }}</pre>
+
+        </details>
+
+
+        {% elif error %}
+
+        <div class="error-box">
+
+            <strong>
+                Backend request failed
+            </strong>
+
+            <pre>{{ error }}</pre>
+
+        </div>
+
+
+        {% else %}
+
+        <div class="empty-state">
+
+            <div class="empty-icon">
+                ↗
+            </div>
+
+            <strong>
+                No transaction yet
+            </strong>
+
+            <span>
+                Submit the form to see the real FastAPI response.
+            </span>
+
+        </div>
+
+        {% endif %}
+
+    </article>
+
+</section>
+
+{% endblock %}

@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
@@ -12,7 +13,8 @@ def test_concurrent_same_idempotency_key_does_not_double_debit(
     auth_headers,
 ):
     payload = {
-        "merchant_id": transaction_test_data["merchant_id"],
+        "transaction_type": "P2M",
+        "receiver_account_id": transaction_test_data["merchant_account_id"],
         "amount": "2000.00",
         "currency": "INR",
         "payment_token": "synthetic-concurrent-token",
@@ -39,7 +41,10 @@ def test_concurrent_same_idempotency_key_does_not_double_debit(
 
     assert all(response.status_code == 201 for response in responses)
 
-    transaction_ids = {response.json()["id"] for response in responses}
+    transaction_ids = {
+        response.json()["id"]
+        for response in responses
+    }
 
     assert len(transaction_ids) == 1
 
@@ -49,6 +54,9 @@ def test_concurrent_same_idempotency_key_does_not_double_debit(
             transaction_test_data["account_id"],
         )
 
+        assert account is not None
+        assert account.balance == Decimal("8000.00")
+
         transactions = (
             db.query(Transaction)
             .filter(
@@ -57,7 +65,6 @@ def test_concurrent_same_idempotency_key_does_not_double_debit(
             .all()
         )
 
-        assert account.balance == 8000
         assert len(transactions) == 1
 
 
@@ -74,7 +81,10 @@ def test_concurrent_transactions_preserve_account_consistency(
                     "Idempotency-Key": f"concurrent-key-{index}",
                 },
                 json={
-                    "merchant_id": transaction_test_data["merchant_id"],
+                    "transaction_type": "P2M",
+                    "receiver_account_id": transaction_test_data[
+                        "merchant_account_id"
+                    ],
                     "amount": "2000.00",
                     "currency": "INR",
                     "payment_token": f"synthetic-token-{index}",
@@ -100,14 +110,23 @@ def test_concurrent_transactions_preserve_account_consistency(
             transaction_test_data["account_id"],
         )
 
+        assert account is not None
+        assert account.balance == Decimal("0.00")
+
         transactions = (
             db.query(Transaction)
             .filter(
-                Transaction.user_id == transaction_test_data["user_id"],
+                Transaction.sender_account_id
+                == transaction_test_data["account_id"],
             )
             .all()
         )
 
-        assert account.balance == 0
         assert len(transactions) == 5
-        assert account.balance >= 0
+
+        total_amount = sum(
+            transaction.amount
+            for transaction in transactions
+        )
+
+        assert total_amount == Decimal("10000.00")

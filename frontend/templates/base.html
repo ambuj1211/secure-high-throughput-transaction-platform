@@ -1,0 +1,148 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>{% block title %}Secure Transaction Platform{% endblock %}</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/app.css') }}"
+    >
+</head>
+
+<body>
+
+<div class="app-shell">
+
+    <aside class="sidebar">
+
+        <div class="brand">
+            <div class="brand-logo">ST</div>
+
+            <div>
+                <strong>Secure Platform</strong>
+                <span>Backend Demo Console</span>
+            </div>
+        </div>
+
+        {% if authenticated %}
+
+        <nav class="navigation">
+
+            <a
+                class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}"
+                href="{{ url_for('dashboard') }}"
+            >
+                <span>01</span>
+                Dashboard
+            </a>
+
+            <a
+                class="nav-link {% if request.endpoint == 'transactions' %}active{% endif %}"
+                href="{{ url_for('transactions') }}"
+            >
+                <span>02</span>
+                Transactions
+            </a>
+
+            <a
+                class="nav-link {% if request.endpoint == 'security' %}active{% endif %}"
+                href="{{ url_for('security') }}"
+            >
+                <span>03</span>
+                Security
+            </a>
+
+            <a
+                class="nav-link {% if request.endpoint == 'observability' %}active{% endif %}"
+                href="{{ url_for('observability') }}"
+            >
+                <span>04</span>
+                Observability
+            </a>
+
+        </nav>
+
+        <div class="sidebar-bottom">
+
+            <div class="user-card">
+
+                <div class="avatar">
+                    {{
+                        (
+                            current_user.email
+                            if current_user
+                            and current_user.email
+                            else "D"
+                        )[:1]|upper
+                    }}
+                </div>
+
+                <div>
+                    <strong>
+                        {{
+                            current_user.email
+                            if current_user
+                            and current_user.email
+                            else "Demo user"
+                        }}
+                    </strong>
+
+                    <span>
+                        JWT authenticated
+                    </span>
+                </div>
+
+            </div>
+
+            <form method="post" action="{{ url_for('logout') }}">
+                <button
+                    type="submit"
+                    class="ghost-button full-width"
+                >
+                    Sign out
+                </button>
+            </form>
+
+        </div>
+
+        {% endif %}
+
+    </aside>
+
+
+    <main class="main-content">
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+
+            {% if messages %}
+
+                <div class="flash-stack">
+
+                    {% for category, message in messages %}
+
+                        <div class="flash {{ category }}">
+                            {{ message }}
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            {% endif %}
+
+        {% endwith %}
+
+
+        {% block content %}{% endblock %}
+
+    </main>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+</body>
+</html>

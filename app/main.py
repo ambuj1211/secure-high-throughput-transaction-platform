@@ -4,7 +4,9 @@ import time
 from fastapi import FastAPI, Request
 from prometheus_client import make_asgi_app
 
+from app.api.routes.account import router as account_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.manager import router as manager_router
 from app.api.routes.transactions import router as transactions_router
 from app.core.metrics import REQUEST_COUNT, REQUEST_LATENCY
 
@@ -62,6 +64,8 @@ def health_check():
 
 
 app.include_router(auth_router)
+app.include_router(account_router)
+app.include_router(manager_router)
 app.include_router(transactions_router)
 
 # Prometheus-compatible metrics endpoint.

@@ -1,0 +1,106 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Sign in · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<section class="login-screen">
+
+    <div class="login-panel">
+
+        <div class="eyebrow">
+            BACKEND ENGINEERING DEMO
+        </div>
+
+        <h1>
+            Secure Transaction
+            <br>
+            Processing Platform
+        </h1>
+
+        <p class="lead">
+            A visual console for interacting with the existing
+            FastAPI transaction backend.
+        </p>
+
+
+        <form
+            method="post"
+            class="form-stack"
+        >
+
+            <label>
+                <span>Email</span>
+
+                <input
+                    type="email"
+                    name="email"
+                    value="{{ email or '' }}"
+                    placeholder="demo@example.com"
+                    autocomplete="username"
+                    required
+                >
+            </label>
+
+
+            <label>
+                <span>Password</span>
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Backend account password"
+                    autocomplete="current-password"
+                    required
+                >
+            </label>
+
+
+            <button
+                type="submit"
+                class="primary-button"
+            >
+                Sign in
+            </button>
+
+        </form>
+
+
+        <div class="register-link">
+            <span>New to the demo?</span>
+            <a href="{{ url_for('register') }}">Create a new account</a>
+        </div>
+
+
+        <div class="architecture-strip">
+
+            <div>
+                <span>UI</span>
+                <strong>Flask</strong>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <div>
+                <span>API</span>
+                <strong>FastAPI</strong>
+            </div>
+
+            <div class="arrow">→</div>
+
+            <div>
+                <span>DATA</span>
+                <strong>PostgreSQL</strong>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+{% endblock %}
+

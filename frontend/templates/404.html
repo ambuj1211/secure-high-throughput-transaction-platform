@@ -1,0 +1,33 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Not Found · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<section class="empty-state full-page">
+
+    <div class="empty-icon">
+        ?
+    </div>
+
+    <h1>
+        Page not found
+    </h1>
+
+    <span>
+        The requested console page does not exist.
+    </span>
+
+    <a
+        class="primary-button"
+        href="{{ url_for('index') }}"
+    >
+        Return home
+    </a>
+
+</section>
+
+{% endblock %}

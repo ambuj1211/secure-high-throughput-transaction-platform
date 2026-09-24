@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -53,28 +53,41 @@ def transaction_test_data(
     db.add_all([user, merchant])
     db.flush()
 
-    account = Account(
+    user_account = Account(
         user_id=user.id,
         balance=Decimal("10000.00"),
         currency="INR",
     )
 
-    db.add(account)
+    merchant_account = Account(
+        merchant_id=merchant.id,
+        balance=Decimal("0.00"),
+        currency="INR",
+    )
+
+    db.add_all([user_account, merchant_account])
     db.commit()
 
     data = {
         "user_id": str(user.id),
         "merchant_id": str(merchant.id),
-        "account_id": str(account.id),
+        "account_id": str(user_account.id),
+        "merchant_account_id": str(merchant_account.id),
     }
 
     yield data
 
-    # Transactions must be deleted before their referenced
-    # users/merchants.
+    # Delete dependent transactions first.
     transaction_ids = db.scalars(
         select(Transaction.id).where(
-            Transaction.merchant_id == merchant.id,
+            or_(
+                Transaction.sender_account_id.in_(
+                    [user_account.id, merchant_account.id]
+                ),
+                Transaction.receiver_account_id.in_(
+                    [user_account.id, merchant_account.id]
+                ),
+            )
         )
     ).all()
 
@@ -85,18 +98,22 @@ def transaction_test_data(
             )
         )
 
-    db.execute(
-        delete(Transaction).where(
-            Transaction.merchant_id == merchant.id,
+        db.execute(
+            delete(Transaction).where(
+                Transaction.id.in_(transaction_ids),
+            )
         )
-    )
 
+    # Delete the accounts owned by the fixture data.
     db.execute(
         delete(Account).where(
-            Account.id == account.id,
+            Account.id.in_(
+                [user_account.id, merchant_account.id]
+            ),
         )
     )
 
+    # Delete the owner records.
     db.execute(
         delete(User).where(
             User.id == user.id,

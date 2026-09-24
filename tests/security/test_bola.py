@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
@@ -21,6 +21,7 @@ def test_transaction_cannot_use_client_supplied_user_id(
             password_hash=None,
             role="user",
         )
+
         db.add(attacker)
         db.flush()
 
@@ -29,6 +30,7 @@ def test_transaction_cannot_use_client_supplied_user_id(
             balance=5000,
             currency="INR",
         )
+
         db.add(attacker_account)
         db.commit()
 
@@ -48,9 +50,12 @@ def test_transaction_cannot_use_client_supplied_user_id(
             },
             json={
                 # Malicious client-supplied victim ID.
-                # TransactionCreate should ignore this unknown field.
+                # The authenticated user must still be taken from the JWT.
                 "user_id": transaction_test_data["user_id"],
-                "merchant_id": transaction_test_data["merchant_id"],
+                "transaction_type": "P2M",
+                "receiver_account_id": transaction_test_data[
+                    "merchant_account_id"
+                ],
                 "amount": "1000.00",
                 "currency": "INR",
                 "payment_token": "synthetic-bola-token",
@@ -62,13 +67,16 @@ def test_transaction_cannot_use_client_supplied_user_id(
     body = response.json()
     transaction_id = body["id"]
 
-    # Identity must come from the JWT, not the request body.
-    assert body["user_id"] == attacker_id
-    assert body["user_id"] != transaction_test_data["user_id"]
+    # The sender must be resolved from the JWT, not from the
+    # client-supplied user_id.
+    assert body["sender_account_id"] != transaction_test_data["account_id"]
+    assert body["sender_account_id"] is not None
 
     with SessionLocal() as db:
         attacker_account = (
-            db.query(Account).filter(Account.user_id == attacker_id).one()
+            db.query(Account)
+            .filter(Account.user_id == attacker_id)
+            .one()
         )
 
         victim_account = db.get(
@@ -81,17 +89,30 @@ def test_transaction_cannot_use_client_supplied_user_id(
             transaction_id,
         )
 
+        assert victim_account is not None
+        assert transaction is not None
+
+        # The authenticated attacker account funded the transaction.
+        assert transaction.sender_account_id == attacker_account.id
+        assert str(transaction.sender_account_id) != (
+            transaction_test_data["account_id"]
+        )
+
+        # The victim's account was not debited.
         assert attacker_account.balance == 4000
         assert victim_account.balance == 10000
-        assert str(transaction.user_id) == attacker_id
 
-        # Explicitly prove the victim's account was not debited.
-        assert transaction.user_id != transaction_test_data["user_id"]
+        assert transaction.receiver_account_id == UUID(
+            transaction_test_data["merchant_account_id"]
+        )
+        assert transaction.transaction_type == "P2M"
 
-        # Cleanup the attacker's transaction before deleting the attacker.
+        # Cleanup dependent data before deleting the attacker.
         risk_job = (
             db.query(RiskJob)
-            .filter(RiskJob.transaction_id == transaction.id)
+            .filter(
+                RiskJob.transaction_id == transaction.id,
+            )
             .one_or_none()
         )
 
@@ -99,9 +120,16 @@ def test_transaction_cannot_use_client_supplied_user_id(
             db.delete(risk_job)
 
         db.delete(transaction)
-        db.delete(attacker_account)
+        db.flush()
 
-        attacker = db.get(User, attacker_id)
+        db.delete(attacker_account)
+        db.flush()
+
+        attacker = db.get(
+            User,
+            attacker_id,
+        )
+
         if attacker is not None:
             db.delete(attacker)
 

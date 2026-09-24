@@ -6,13 +6,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Merchant, RiskJob, Transaction
+from app.models import Account, RiskJob, Transaction
 from app.schemas.transaction import TransactionCreate
 from app.services.exceptions import (
     AccountNotFoundError,
     IdempotencyConflictError,
     InsufficientFundsError,
-    MerchantNotFoundError,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,16 +27,42 @@ def utc_now() -> datetime:
 
 def _matches_existing_request(
     transaction: Transaction,
-    user_id: UUID,
+    sender_account_id: UUID,
     request: TransactionCreate,
 ) -> bool:
     return (
-        transaction.user_id == user_id
-        and transaction.merchant_id == request.merchant_id
+        transaction.sender_account_id == sender_account_id
+        and transaction.receiver_account_id == request.receiver_account_id
+        and transaction.transaction_type == request.transaction_type
         and transaction.amount == request.amount
         and transaction.currency == request.currency
         and transaction.payment_token == request.payment_token
     )
+
+
+def _validate_transfer_type(
+    transaction_type: str,
+    sender: Account,
+    receiver: Account,
+) -> None:
+    sender_is_user = sender.user_id is not None
+    sender_is_merchant = sender.merchant_id is not None
+
+    receiver_is_user = receiver.user_id is not None
+    receiver_is_merchant = receiver.merchant_id is not None
+
+    valid_types = {
+        "P2P": sender_is_user and receiver_is_user,
+        "P2M": sender_is_user and receiver_is_merchant,
+        "M2M": sender_is_merchant and receiver_is_merchant,
+        "M2P": sender_is_merchant and receiver_is_user,
+    }
+
+    if not valid_types.get(transaction_type, False):
+        raise ValueError(
+            f"Transaction type {transaction_type} does not match "
+            "the sender and receiver account ownership.",
+        )
 
 
 def create_transaction(
@@ -45,21 +70,22 @@ def create_transaction(
     user_id: UUID,
     request: TransactionCreate,
     idempotency_key: str,
+    sender_account_id: UUID | None = None,
 ) -> Transaction:
     """
-    Create a transaction atomically.
+    Create a transfer and reserve the sender's funds.
 
-    The authenticated user_id is supplied by the JWT layer rather than
-    being accepted from the client request body.
+    Normal participant requests:
+        sender_account_id is resolved from the authenticated user_id.
 
-    The account row is locked with SELECT FOR UPDATE so concurrent
-    requests cannot both spend the same available balance.
+    Manager requests:
+        sender_account_id is supplied explicitly.
 
-    The transaction and its risk job are committed in the same
-    database transaction.
+    The sender account is debited immediately as a reservation.
+    The receiver is credited only after the risk worker allows the
+    transaction. A blocked transaction will release the reservation.
 
-    Performance instrumentation is sampled to avoid logging every
-    request.
+    Both transaction and RiskJob are created atomically.
     """
     global _perf_counter
 
@@ -67,8 +93,8 @@ def create_transaction(
     perf_sample = _perf_counter % _PERF_SAMPLE_EVERY == 0
     perf_start = time.perf_counter()
 
-    merchant_ms = 0.0
     account_lock_ms = 0.0
+    receiver_lookup_ms = 0.0
     idempotency_recheck_ms = 0.0
     transaction_flush_ms = 0.0
     risk_job_flush_ms = 0.0
@@ -82,100 +108,153 @@ def create_transaction(
         # ---------------------------------------------------------
         existing = db.scalar(
             select(Transaction).where(
-                Transaction.idempotency_key == idempotency_key
-            )
+                Transaction.idempotency_key == idempotency_key,
+            ),
         )
 
         if existing is not None:
-            if _matches_existing_request(existing, user_id, request):
+            effective_sender_id = sender_account_id
+
+            if effective_sender_id is None:
+                account = db.scalar(
+                    select(Account).where(Account.user_id == user_id),
+                )
+                if account is not None:
+                    effective_sender_id = account.id
+
+            if effective_sender_id is not None and _matches_existing_request(
+                existing,
+                effective_sender_id,
+                request,
+            ):
                 return existing
 
             raise IdempotencyConflictError(
-                "Idempotency key was already used with a different request."
+                "Idempotency key was already used with a different request.",
             )
 
         # ---------------------------------------------------------
-        # 2. Merchant lookup
+        # 2. Resolve sender account
+        # ---------------------------------------------------------
+        if sender_account_id is None:
+            sender_account_id = db.scalar(
+                select(Account.id).where(Account.user_id == user_id),
+            )
+
+            if sender_account_id is None:
+                raise AccountNotFoundError(
+                    "Sender account not found.",
+                )
+
+        # ---------------------------------------------------------
+        # 3. Lock sender account
         # ---------------------------------------------------------
         phase_start = time.perf_counter()
 
-        merchant = db.scalar(
-            select(Merchant).where(Merchant.id == request.merchant_id)
-        )
-
-        merchant_ms = (time.perf_counter() - phase_start) * 1000
-
-        if merchant is None:
-            raise MerchantNotFoundError("Merchant not found.")
-
-        # Use one timestamp for all writes in this transaction.
-        now = utc_now()
-
-        # ---------------------------------------------------------
-        # 3. Account lookup + row lock
-        # ---------------------------------------------------------
-        phase_start = time.perf_counter()
-
-        account = db.scalar(
+        sender = db.scalar(
             select(Account)
-            .where(Account.user_id == user_id)
-            .with_for_update()
+            .where(Account.id == sender_account_id)
+            .with_for_update(),
         )
 
         account_lock_ms = (time.perf_counter() - phase_start) * 1000
 
-        if account is None:
-            raise AccountNotFoundError("Account not found.")
+        if sender is None:
+            raise AccountNotFoundError(
+                "Sender account not found.",
+            )
 
         # ---------------------------------------------------------
-        # 4. Re-check idempotency after acquiring account lock
+        # 4. Receiver lookup
+        # ---------------------------------------------------------
+        phase_start = time.perf_counter()
+
+        receiver = db.scalar(
+            select(Account).where(
+                Account.id == request.receiver_account_id,
+            ),
+        )
+
+        receiver_lookup_ms = (time.perf_counter() - phase_start) * 1000
+
+        if receiver is None:
+            raise AccountNotFoundError(
+                "Receiver account not found.",
+            )
+
+        if sender.id == receiver.id:
+            raise ValueError(
+                "Sender and receiver accounts must be different.",
+            )
+
+        # ---------------------------------------------------------
+        # 5. Validate transfer type and currency
+        # ---------------------------------------------------------
+        _validate_transfer_type(
+            request.transaction_type,
+            sender,
+            receiver,
+        )
+
+        if sender.currency != request.currency:
+            raise ValueError(
+                "Sender account and transaction currencies must match.",
+            )
+
+        if receiver.currency != request.currency:
+            raise ValueError(
+                "Receiver account and transaction currencies must match.",
+            )
+
+        # ---------------------------------------------------------
+        # 6. Check available balance
+        # ---------------------------------------------------------
+        if sender.balance < request.amount:
+            raise InsufficientFundsError(
+                "Insufficient account balance.",
+            )
+
+        # ---------------------------------------------------------
+        # 7. Re-check idempotency after acquiring sender lock
         # ---------------------------------------------------------
         phase_start = time.perf_counter()
 
         existing = db.scalar(
             select(Transaction).where(
-                Transaction.idempotency_key == idempotency_key
-            )
+                Transaction.idempotency_key == idempotency_key,
+            ),
         )
 
-        idempotency_recheck_ms = (
-            time.perf_counter() - phase_start
-        ) * 1000
+        idempotency_recheck_ms = (time.perf_counter() - phase_start) * 1000
 
         if existing is not None:
-            if _matches_existing_request(existing, user_id, request):
+            if _matches_existing_request(
+                existing,
+                sender.id,
+                request,
+            ):
                 return existing
 
             raise IdempotencyConflictError(
-                "Idempotency key was already used with a different request."
+                "Idempotency key was already used with a different request.",
             )
 
         # ---------------------------------------------------------
-        # 5. Validate currency and balance
+        # 8. Reserve sender funds
         # ---------------------------------------------------------
-        if account.currency != request.currency:
-            raise ValueError(
-                "Account and transaction currencies must match."
-            )
+        now = utc_now()
 
-        if account.balance < request.amount:
-            raise InsufficientFundsError(
-                "Insufficient account balance."
-            )
+        sender.balance -= request.amount
+        sender.version += 1
+        sender.updated_at = now
 
         # ---------------------------------------------------------
-        # 6. Debit account
-        # ---------------------------------------------------------
-        account.balance -= request.amount
-        account.version += 1
-        account.updated_at = now
-
-        # ---------------------------------------------------------
-        # 7. Create transaction
+        # 9. Create transaction
         # ---------------------------------------------------------
         transaction = Transaction(
-            user_id=user_id,
-            merchant_id=request.merchant_id,
+            transaction_type=request.transaction_type,
+            sender_account_id=sender.id,
+            receiver_account_id=receiver.id,
             amount=request.amount,
             currency=request.currency,
             payment_token=request.payment_token,
@@ -189,12 +268,10 @@ def create_transaction(
 
         db.flush()
 
-        transaction_flush_ms = (
-            time.perf_counter() - phase_start
-        ) * 1000
+        transaction_flush_ms = (time.perf_counter() - phase_start) * 1000
 
         # ---------------------------------------------------------
-        # 8. Create risk job
+        # 10. Create risk job
         # ---------------------------------------------------------
         risk_job = RiskJob(
             transaction_id=transaction.id,
@@ -209,29 +286,25 @@ def create_transaction(
 
         db.flush()
 
-        risk_job_flush_ms = (
-            time.perf_counter() - phase_start
-        ) * 1000
+        risk_job_flush_ms = (time.perf_counter() - phase_start) * 1000
 
-        # Start timer immediately before leaving the transaction
-        # context. Exiting db.begin() performs the COMMIT.
+        # Commit occurs when db.begin() exits.
         commit_start = time.perf_counter()
 
-    # The db.begin() context has now committed.
     commit_ms = (time.perf_counter() - commit_start) * 1000
     total_ms = (time.perf_counter() - perf_start) * 1000
 
     if perf_sample:
         logger.warning(
             (
-                "TX_PERF total=%.2fms merchant=%.2fms "
-                "account_lock=%.2fms idempotency_recheck=%.2fms "
+                "TX_PERF total=%.2fms account_lock=%.2fms "
+                "receiver_lookup=%.2fms idempotency_recheck=%.2fms "
                 "transaction_flush=%.2fms risk_job_flush=%.2fms "
                 "commit=%.2fms"
             ),
             total_ms,
-            merchant_ms,
             account_lock_ms,
+            receiver_lookup_ms,
             idempotency_recheck_ms,
             transaction_flush_ms,
             risk_job_flush_ms,

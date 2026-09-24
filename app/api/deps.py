@@ -5,7 +5,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,14 +13,13 @@ from app.db.session import SessionLocal
 from app.models import User
 from app.services.rate_limiter import RateLimiter
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",
-)
+bearer_scheme = HTTPBearer(auto_error=True)
 
 logger = logging.getLogger(__name__)
 
 _PERF_SAMPLE_EVERY = 50
 _auth_counter = 0
+
 
 def get_db():
     db = SessionLocal()
@@ -31,13 +30,16 @@ def get_db():
 
 
 DBSession = Annotated[Session, Depends(get_db)]
-BearerToken = Annotated[str, Depends(oauth2_scheme)]
-
+BearerToken = Annotated[
+    HTTPAuthorizationCredentials,
+    Depends(bearer_scheme),
+]
 
 
 def get_current_user_id(
-    token: BearerToken,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> UUID:
+    token = credentials.credentials
     global _auth_counter
 
     _auth_counter += 1
@@ -81,16 +83,20 @@ def get_current_user_id(
     ) as exc:
         raise credentials_exception from exc
 
+
 CurrentUserId = Annotated[UUID, Depends(get_current_user_id)]
 
+
 def get_current_user(
-    token: BearerToken,
+    credentials: BearerToken,
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired authentication token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    token = credentials.credentials
 
     try:
         payload = jwt.decode(
@@ -104,21 +110,23 @@ def get_current_user(
         if not user_id:
             raise credentials_exception
 
-    except jwt.ExpiredSignatureError as exc:
-        raise credentials_exception from exc
-    except jwt.InvalidTokenError as exc:
+        user_uuid = UUID(str(user_id))
+
+    except (
+        jwt.ExpiredSignatureError,
+        jwt.InvalidTokenError,
+        ValueError,
+    ) as exc:
         raise credentials_exception from exc
 
     # Authentication uses its own short-lived session.
     # This keeps the business transaction session independent.
     with SessionLocal() as auth_db:
-        user = auth_db.get(User, user_id)
+        user = auth_db.get(User, user_uuid)
 
         if user is None:
             raise credentials_exception
 
-        # User attributes are already loaded. Closing auth_db
-        # detaches the object without starting another transaction.
         return user
 
 

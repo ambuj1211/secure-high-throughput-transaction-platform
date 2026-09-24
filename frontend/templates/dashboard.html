@@ -1,0 +1,350 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Dashboard · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<header class="page-header">
+
+    <div>
+
+        <div class="eyebrow">
+            SYSTEM OVERVIEW
+        </div>
+
+        <h1>
+            Backend Control Center
+        </h1>
+
+        <p class="lead">
+            See the health and live metrics of the transaction backend.
+        </p>
+
+    </div>
+
+
+    <button
+        id="refresh-dashboard"
+        class="secondary-button"
+        type="button"
+    >
+        Refresh metrics
+    </button>
+
+</header>
+
+
+<section class="status-grid">
+
+    <article class="status-card">
+
+        <span class="card-label">
+            FastAPI
+        </span>
+
+        <strong class="status-value">
+
+            <span
+                class="health-dot
+                {% if api_healthy %}
+                    healthy
+                {% else %}
+                    down
+                {% endif %}"
+            ></span>
+
+            {% if api_healthy %}
+                Healthy
+            {% else %}
+                Unavailable
+            {% endif %}
+
+        </strong>
+
+        <span class="muted">
+            {{ health.status }}
+        </span>
+
+    </article>
+
+
+    <article class="status-card">
+
+        <span class="card-label">
+            PostgreSQL
+        </span>
+
+        <strong class="status-value">
+
+            <span class="health-dot healthy"></span>
+
+            Connected
+
+        </strong>
+
+        <span class="muted">
+            Backend health dependency
+        </span>
+
+    </article>
+
+
+    <article class="status-card">
+
+        <span class="card-label">
+            Redis
+        </span>
+
+        <strong class="status-value">
+
+            <span class="health-dot healthy"></span>
+
+            Connected
+
+        </strong>
+
+        <span class="muted">
+            Rate limiting / state
+        </span>
+
+    </article>
+
+
+    <article class="status-card">
+
+        <span class="card-label">
+            Data
+        </span>
+
+        <strong class="status-value">
+
+            <span class="health-dot healthy"></span>
+
+            Synthetic
+
+        </strong>
+
+        <span class="muted">
+            Portfolio simulation
+        </span>
+
+    </article>
+
+</section>
+
+
+<section class="metrics-grid">
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Request rate
+        </span>
+
+        <strong id="request-rate">
+            {{ metrics.request_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            req/s · 1 minute
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Transaction rate
+        </span>
+
+        <strong id="transaction-rate">
+            {{ metrics.transaction_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            req/s · transaction endpoint
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            5xx rate
+        </span>
+
+        <strong id="error-rate">
+            {{ metrics.error_rate|number }}
+        </strong>
+
+        <span class="metric-unit">
+            errors/s · 1 minute
+        </span>
+
+    </article>
+
+
+    <article class="metric-card">
+
+        <span class="metric-label">
+            Transaction p95
+        </span>
+
+        <strong id="transaction-p95">
+            {{ metrics.transaction_p95|milliseconds }}
+        </strong>
+
+        <span class="metric-unit">
+            histogram · 1 minute
+        </span>
+
+    </article>
+
+</section>
+
+
+<section class="content-grid">
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    REQUEST FLOW
+                </div>
+
+                <h2>
+                    What happens behind the button
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <div class="flow">
+
+            <div class="flow-step">
+                <span>01</span>
+                <strong>Authenticate</strong>
+                <small>JWT + authorization</small>
+            </div>
+
+            <div class="flow-arrow">→</div>
+
+            <div class="flow-step">
+                <span>02</span>
+                <strong>Process</strong>
+                <small>FastAPI transaction service</small>
+            </div>
+
+            <div class="flow-arrow">→</div>
+
+            <div class="flow-step">
+                <span>03</span>
+                <strong>Protect</strong>
+                <small>Idempotency + consistency</small>
+            </div>
+
+            <div class="flow-arrow">→</div>
+
+            <div class="flow-step">
+                <span>04</span>
+                <strong>Observe</strong>
+                <small>Prometheus + Grafana</small>
+            </div>
+
+        </div>
+
+    </article>
+
+
+    <article class="panel">
+
+        <div class="panel-heading">
+
+            <div>
+
+                <div class="eyebrow">
+                    VERIFIED BENCHMARK
+                </div>
+
+                <h2>
+                    Docker · Locust
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <div class="benchmark-grid">
+
+            <div>
+                <span>Users</span>
+                <strong>100</strong>
+            </div>
+
+            <div>
+                <span>Duration</span>
+                <strong>30 s</strong>
+            </div>
+
+            <div>
+                <span>Requests</span>
+                <strong>3,196</strong>
+            </div>
+
+            <div>
+                <span>Failures</span>
+                <strong>0</strong>
+            </div>
+
+            <div>
+                <span>Throughput</span>
+                <strong>108.76 req/s</strong>
+            </div>
+
+            <div>
+                <span>P95</span>
+                <strong>860 ms</strong>
+            </div>
+
+        </div>
+
+        <p class="muted benchmark-note">
+            Local benchmark measurement; not a production capacity guarantee.
+        </p>
+
+    </article>
+
+</section>
+
+
+<div class="action-row">
+
+    <a
+        class="primary-button"
+        href="{{ url_for('transactions') }}"
+    >
+        Open transaction simulator
+    </a>
+
+
+    <a
+        class="secondary-button"
+        href="{{ url_for('security') }}"
+    >
+        Open security center
+    </a>
+
+</div>
+
+{% endblock %}

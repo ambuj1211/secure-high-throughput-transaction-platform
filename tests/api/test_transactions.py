@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 from app.db.session import SessionLocal
@@ -18,7 +19,8 @@ def test_create_transaction_success(
             "Idempotency-Key": idempotency_key,
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "2000.00",
             "currency": "INR",
             "payment_token": "synthetic-token-001",
@@ -29,10 +31,15 @@ def test_create_transaction_success(
 
     body = response.json()
 
-    assert body["user_id"] == transaction_test_data["user_id"]
-    assert body["merchant_id"] == transaction_test_data["merchant_id"]
+    assert body["transaction_type"] == "P2M"
+    assert body["sender_account_id"] == transaction_test_data["account_id"]
+    assert body["receiver_account_id"] == transaction_test_data[
+        "merchant_account_id"
+    ]
     assert body["amount"] == "2000.00"
+    assert body["currency"] == "INR"
     assert body["status"] == "PENDING"
+    assert body["idempotency_key"] == idempotency_key
 
     with SessionLocal() as db:
         account = db.get(
@@ -40,7 +47,8 @@ def test_create_transaction_success(
             transaction_test_data["account_id"],
         )
 
-        assert account.balance == 8000
+        assert account is not None
+        assert account.balance == Decimal("8000.00")
 
 
 def test_transaction_fails_for_insufficient_funds(
@@ -55,7 +63,8 @@ def test_transaction_fails_for_insufficient_funds(
             "Idempotency-Key": str(uuid4()),
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "20000.00",
             "currency": "INR",
             "payment_token": "synthetic-token-002",
@@ -71,9 +80,12 @@ def test_transaction_requires_authentication(
 ) -> None:
     response = client.post(
         "/api/v1/transactions",
-        headers={"Idempotency-Key": str(uuid4())},
+        headers={
+            "Idempotency-Key": str(uuid4()),
+        },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "100.00",
             "currency": "INR",
             "payment_token": "synthetic-token-003",
@@ -83,7 +95,7 @@ def test_transaction_requires_authentication(
     assert response.status_code == 401
 
 
-def test_transaction_fails_for_unknown_merchant(
+def test_transaction_fails_for_unknown_receiver_account(
     client,
     auth_headers,
 ) -> None:
@@ -94,7 +106,8 @@ def test_transaction_fails_for_unknown_merchant(
             "Idempotency-Key": str(uuid4()),
         },
         json={
-            "merchant_id": str(uuid4()),
+            "transaction_type": "P2M",
+            "receiver_account_id": str(uuid4()),
             "amount": "100.00",
             "currency": "INR",
             "payment_token": "synthetic-token-004",
@@ -113,7 +126,8 @@ def test_missing_idempotency_key_rejected(
         "/api/v1/transactions",
         headers=auth_headers,
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "100.00",
             "currency": "INR",
             "payment_token": "synthetic-token-005",
@@ -131,7 +145,8 @@ def test_repeated_idempotent_request_does_not_double_debit(
     idempotency_key = str(uuid4())
 
     payload = {
-        "merchant_id": transaction_test_data["merchant_id"],
+        "transaction_type": "P2M",
+        "receiver_account_id": transaction_test_data["merchant_account_id"],
         "amount": "2000.00",
         "currency": "INR",
         "payment_token": "synthetic-token-idempotent",
@@ -157,7 +172,10 @@ def test_repeated_idempotent_request_does_not_double_debit(
     assert first_response.status_code == 201
     assert second_response.status_code == 201
 
-    assert first_response.json()["id"] == second_response.json()["id"]
+    first_body = first_response.json()
+    second_body = second_response.json()
+
+    assert first_body["id"] == second_body["id"]
 
     with SessionLocal() as db:
         account = db.get(
@@ -165,7 +183,8 @@ def test_repeated_idempotent_request_does_not_double_debit(
             transaction_test_data["account_id"],
         )
 
-        assert account.balance == 8000
+        assert account is not None
+        assert account.balance == Decimal("8000.00")
 
         transactions = (
             db.query(Transaction)
@@ -192,7 +211,8 @@ def test_reused_idempotency_key_with_different_request_rejected(
             "Idempotency-Key": idempotency_key,
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "2000.00",
             "currency": "INR",
             "payment_token": "synthetic-token-conflict",
@@ -206,7 +226,8 @@ def test_reused_idempotency_key_with_different_request_rejected(
             "Idempotency-Key": idempotency_key,
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "3000.00",
             "currency": "INR",
             "payment_token": "synthetic-token-conflict",
@@ -231,7 +252,8 @@ def test_transaction_creates_risk_job(
             "Idempotency-Key": idempotency_key,
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data["merchant_account_id"],
             "amount": "2000.00",
             "currency": "INR",
             "payment_token": "synthetic-risk-job-token",
@@ -243,7 +265,13 @@ def test_transaction_creates_risk_job(
     transaction_id = response.json()["id"]
 
     with SessionLocal() as db:
-        jobs = db.query(RiskJob).filter(RiskJob.transaction_id == transaction_id).all()
+        jobs = (
+            db.query(RiskJob)
+            .filter(
+                RiskJob.transaction_id == transaction_id,
+            )
+            .all()
+        )
 
         assert len(jobs) == 1
         assert jobs[0].status == "PENDING"
@@ -258,7 +286,8 @@ def test_repeated_idempotent_request_creates_only_one_risk_job(
     idempotency_key = str(uuid4())
 
     payload = {
-        "merchant_id": transaction_test_data["merchant_id"],
+        "transaction_type": "P2M",
+        "receiver_account_id": transaction_test_data["merchant_account_id"],
         "amount": "1000.00",
         "currency": "INR",
         "payment_token": "synthetic-risk-job-idempotent",
@@ -283,13 +312,17 @@ def test_repeated_idempotent_request_creates_only_one_risk_job(
 
     assert first.status_code == 201
     assert second.status_code == 201
-    assert first.json()["id"] == second.json()["id"]
+
+    first_body = first.json()
+    second_body = second.json()
+
+    assert first_body["id"] == second_body["id"]
 
     with SessionLocal() as db:
         jobs = (
             db.query(RiskJob)
             .filter(
-                RiskJob.transaction_id == first.json()["id"],
+                RiskJob.transaction_id == first_body["id"],
             )
             .all()
         )

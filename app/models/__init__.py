@@ -1,5 +1,6 @@
 from app.models.entities import (
     Account,
+    CashOperation,
     Merchant,
     RiskJob,
     Transaction,
@@ -8,6 +9,7 @@ from app.models.entities import (
 
 __all__ = [
     "Account",
+    "CashOperation",
     "Merchant",
     "RiskJob",
     "Transaction",

@@ -173,3 +173,39 @@ def test_user_cannot_access_admin_endpoint(
     )
 
     assert response.status_code == 403
+
+
+def test_register_creates_zero_balance_account(
+    client,
+    db,
+):
+    from decimal import Decimal
+
+    from app.models import Account
+
+    email = f"account-{uuid4()}@test.local"
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "name": "Account Test User",
+            "email": email,
+            "password": "StrongPass123",
+        },
+    )
+
+    assert response.status_code == 201
+
+    user_id = response.json()["id"]
+
+    account = (
+        db.query(Account)
+        .filter(
+            Account.user_id == user_id,
+        )
+        .one()
+    )
+
+    assert account.balance == Decimal("0.00")
+    assert account.currency == "INR"
+    assert account.version == 0

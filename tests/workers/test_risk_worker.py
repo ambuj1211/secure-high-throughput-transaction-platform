@@ -23,7 +23,10 @@ def _create_transaction(
             "Idempotency-Key": str(uuid4()),
         },
         json={
-            "merchant_id": transaction_test_data["merchant_id"],
+            "transaction_type": "P2M",
+            "receiver_account_id": transaction_test_data[
+                "merchant_account_id"
+            ],
             "amount": "2000.00",
             "currency": "INR",
             "payment_token": "synthetic-worker-token",
@@ -31,7 +34,18 @@ def _create_transaction(
     )
 
     assert response.status_code == 201
-    return response.json()["id"]
+
+    body = response.json()
+
+    assert body["transaction_type"] == "P2M"
+    assert body["sender_account_id"] == transaction_test_data["account_id"]
+    assert body["receiver_account_id"] == transaction_test_data[
+        "merchant_account_id"
+    ]
+    assert body["amount"] == "2000.00"
+    assert body["status"] == "PENDING"
+
+    return body["id"]
 
 
 def test_worker_processes_pending_risk_job(
@@ -47,7 +61,9 @@ def test_worker_processes_pending_risk_job(
 
     with SessionLocal() as db:
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert job is not None
@@ -63,8 +79,11 @@ def test_worker_processes_pending_risk_job(
             Transaction,
             UUID(transaction_id),
         )
+
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert transaction is not None
@@ -74,9 +93,18 @@ def test_worker_processes_pending_risk_job(
         assert job.attempts == 1
         assert job.last_error is None
 
+        assert transaction.transaction_type == "P2M"
+        assert transaction.sender_account_id == UUID(
+            transaction_test_data["account_id"]
+        )
+        assert transaction.receiver_account_id == UUID(
+            transaction_test_data["merchant_account_id"]
+        )
+
         assert transaction.risk_score == Decimal("38.00")
         assert transaction.risk_decision == "ALLOW"
         assert transaction.risk_processed_at is not None
+        assert transaction.status == "COMPLETED"
 
 
 def test_completed_job_is_not_processed_again(
@@ -96,7 +124,9 @@ def test_completed_job_is_not_processed_again(
 
     with SessionLocal() as db:
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert job is not None
@@ -152,7 +182,9 @@ def test_worker_retries_failed_risk_job(
 
     with SessionLocal() as db:
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert job is not None
@@ -174,8 +206,11 @@ def test_worker_retries_failed_risk_job(
             Transaction,
             UUID(transaction_id),
         )
+
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert transaction is not None
@@ -187,6 +222,7 @@ def test_worker_retries_failed_risk_job(
 
         assert transaction.risk_score == Decimal("25.00")
         assert transaction.risk_decision == "ALLOW"
+        assert transaction.status == "COMPLETED"
 
 
 def test_worker_marks_job_failed_after_max_attempts(
@@ -237,7 +273,9 @@ def test_worker_marks_job_failed_after_max_attempts(
 
     with SessionLocal() as db:
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert job is not None
@@ -306,11 +344,15 @@ def test_skip_locked_prevents_two_workers_claiming_same_job(
             Transaction,
             UUID(transaction_id),
         )
+
         job = db.scalar(
-            select(RiskJob).where(RiskJob.transaction_id == UUID(transaction_id))
+            select(RiskJob).where(
+                RiskJob.transaction_id == UUID(transaction_id),
+            )
         )
 
         assert transaction is not None
         assert job is not None
         assert job.status == "COMPLETED"
         assert job.attempts == 1
+        assert transaction.status == "COMPLETED"

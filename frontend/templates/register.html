@@ -1,0 +1,157 @@
+﻿{% extends "base.html" %}
+
+{% block title %}
+Create account · Secure Transaction Platform
+{% endblock %}
+
+
+{% block content %}
+
+<section class="login-screen">
+
+    <div class="login-panel">
+
+        <div class="eyebrow">
+            DEMO ACCOUNT SETUP
+        </div>
+
+        <h1>
+            Create your account
+        </h1>
+
+        <p class="lead">
+            Registration is handled by the existing FastAPI backend.
+            Your password is hashed by the backend before storage.
+        </p>
+
+
+        <form
+            method="post"
+            class="form-stack"
+        >
+
+            <label>
+
+                <span>
+                    Full name
+                </span>
+
+                <input
+                    type="text"
+                    name="name"
+                    value="{{ name or '' }}"
+                    placeholder="Demo User"
+                    autocomplete="name"
+                    required
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Email
+                </span>
+
+                <input
+                    type="email"
+                    name="email"
+                    value="{{ email or '' }}"
+                    placeholder="demo@transaction.local"
+                    autocomplete="email"
+                    required
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Password
+                </span>
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Choose a password"
+                    autocomplete="new-password"
+                    required
+                >
+
+            </label>
+
+
+            <label>
+
+                <span>
+                    Confirm password
+                </span>
+
+                <input
+                    type="password"
+                    name="confirm_password"
+                    placeholder="Enter password again"
+                    autocomplete="new-password"
+                    required
+                >
+
+            </label>
+
+
+            <button
+                type="submit"
+                class="primary-button"
+            >
+                Create account
+            </button>
+
+        </form>
+
+
+        <div class="register-link">
+
+            <span>
+                Already have an account?
+            </span>
+
+            <a href="{{ url_for('login') }}">
+                Sign in
+            </a>
+
+        </div>
+
+
+        <div class="architecture-strip">
+
+            <div>
+                <span>UI</span>
+                <strong>Flask</strong>
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div>
+                <span>API</span>
+                <strong>FastAPI</strong>
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div>
+                <span>DATA</span>
+                <strong>PostgreSQL</strong>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+{% endblock %}
